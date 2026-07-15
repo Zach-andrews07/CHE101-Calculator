@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CHE 101 Calculator — Mass &amp; Energy Balance Solver</title>
+<style>
+  :root{
+    --green:#2f9e74; --blue:#2470a8; --accent:#218a73; --accent-dark:#186b59;
+    --bg:#f9fbf8; --bg-alt:#eef5f0; --surface:#ffffff; --text:#16241f; --text-soft:#51635b; --border:#dde7e1;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:var(--sans); background:var(--bg); color:var(--text); line-height:1.5;}
+  header{background:linear-gradient(120deg,var(--green),var(--blue)); color:#fff; padding:28px 20px 22px;}
+  header h1{margin:0 0 4px; font-size:1.5rem;}
+  header p{margin:0; opacity:.92; font-size:.92rem;}
+  nav{display:flex; flex-wrap:wrap; gap:6px; padding:12px 20px; background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5;}
+  nav button{border:1px solid var(--border); background:var(--bg-alt); color:var(--text); padding:8px 14px; border-radius:20px; font-size:.88rem; cursor:pointer; transition:.15s;}
+  nav button:hover{background:var(--accent-soft,#e4f3ec);}
+  nav button.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  main{max-width:960px; margin:0 auto; padding:20px;}
+  section.tab{display:none; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px 22px; margin-bottom:20px;}
+  section.tab.active{display:block;}
+  h2{margin-top:0; font-size:1.2rem; color:var(--accent-dark);}
+  h3{font-size:1rem; margin:18px 0 8px;}
+  label{display:block; font-size:.82rem; color:var(--text-soft); margin:10px 0 3px;}
+  input, select{width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:.92rem; background:#fff; color:var(--text);}
+  .row{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .row3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;}
+  button.solve{margin-top:16px; background:var(--accent); color:#fff; border:none; padding:10px 18px; border-radius:6px; font-size:.95rem; cursor:pointer;}
+  button.solve:hover{background:var(--accent-dark);}
+  .result{margin-top:16px; padding:14px 16px; background:var(--bg-alt); border:1px solid var(--border); border-radius:8px; font-size:.9rem;}
+  .result.err{background:#fdecec; border-color:#f3c2c2; color:#7a1f1f;}
+  .steps{white-space:pre-wrap; font-family:var(--mono); font-size:.82rem; background:#fff; border:1px solid var(--border); border-radius:6px; padding:10px 12px; margin-top:8px; max-height:340px; overflow:auto;}
+  .note{font-size:.8rem; color:var(--text-soft); margin-top:6px;}
+  table{border-collapse:collapse; width:100%; font-size:.82rem; margin-top:8px;}
+  th,td{border:1px solid var(--border); padding:5px 8px; text-align:right;}
+  th:first-child, td:first-child{text-align:left;}
+  th{background:var(--bg-alt);}
+  .streamRow{display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:8px; align-items:end; margin-bottom:8px;}
+  .streamRow button{background:#e3838370; border:1px solid #d99; border-radius:6px; cursor:pointer; padding:6px 8px;}
+  .addBtn{background:var(--bg-alt); border:1px dashed var(--border); border-radius:6px; padding:6px 10px; cursor:pointer; font-size:.82rem; color:var(--accent-dark);}
+  footer{max-width:960px; margin:0 auto; padding:10px 20px 40px; font-size:.78rem; color:var(--text-soft);}
+  .pill{display:inline-block; background:var(--bg-alt); border:1px solid var(--border); border-radius:12px; padding:2px 9px; font-size:.75rem; margin-left:6px;}
+  code{background:var(--bg-alt); padding:1px 5px; border-radius:4px; font-family:var(--mono); font-size:.85em;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CHE 101 Calculator</h1>
+  <p>Mass, material &amp; energy balance solver — reference data from Felder, Rousseau &amp; Bullard, <em>Elementary Principles of Chemical Processes</em>, 4th ed., Appendix B</p>
+</header>
+
+<nav id="tabnav"></nav>
+
+<main id="main"></main>
+
+<footer>
+  Built for CHE 101 coursework. Reference data is a hand-verified curated subset of Appendix B (not the complete tables) —
+  values were cross-checked against known literature Cp/ΔHf at 25°C during transcription. Always sanity-check results against your course notes.
+</footer>
+
+<script>
+/* =========================================================================
+   DATA — curated, cross-validated subset of FRB Appendix B (4th ed.)
+   ========================================================================= */
+
+// Elements for molecular-weight / formula parsing
+const ELEMENTS = {
+  H:1.008, C:12.011, N:14.007, O:15.999, S:32.065, Cl:35.453, Na:22.990,
+  Ca:40.078, Mg:24.305, K:39.098, Fe:55.845, Cu:63.546, Zn:65.38, Br:79.904,
+  I:126.904, P:30.974, F:18.998, Si:28.086, Al:26.982, He:4.003, Ar:39.948,
+  Ba:137.33, Mn:54.938, Ni:58.693, Pb:207.2, Ag:107.87, Hg:200.59, Sn:118.71
+};
+
+// Table B.2 heat-capacity polynomials: Cp = a + bT + cT^2 + dT^3 (kJ/mol per degree)
+// tempUnit 'C' or 'K' tells which T to plug in. Values already in absolute units (not x10^n).
+const CP = {
+  "Acetone(l)":   {mw:58.08, phase:"l", tempUnit:"C", range:[-30,60],  a:0.1230, b:0.000186, c:0, d:0},
+  "Acetone(g)":   {mw:58.08, phase:"g", tempUnit:"C", range:[0,1200], a:0.07196, b:0.0002010, c:-1.278e-7, d:3.476e-11},
+  "Acetylene(g)": {mw:26.04, phase:"g", tempUnit:"C", range:[0,1200], a:0.04243, b:0.00006053, c:-5.033e-8, d:1.820e-11},
+  "Air(g)":       {mw:29.0,  phase:"g", tempUnit:"K", range:[273,1800], a:0.02894, b:4.147e-6, c:3.191e-9, d:-1.965e-12},
+  "Benzene(l)":   {mw:78.11, phase:"l", tempUnit:"C", range:[6,67],   a:0.1265, b:0, c:0, d:0},
+  "Benzene(g)":   {mw:78.11, phase:"g", tempUnit:"C", range:[0,1200], a:0.07406, b:0.0003295, c:-2.520e-7, d:7.757e-11},
+  "Isobutane(g)": {mw:58.12, phase:"g", tempUnit:"C", range:[0,1200], a:0.08946, b:0.0003013, c:-1.891e-7, d:4.987e-11},
+  "n-Butane(g)":  {mw:58.12, phase:"g", tempUnit:"C", range:[0,1200], a:0.0923, b:0.0002788, c:-1.547e-7, d:3.498e-11},
+  "Isobutene(g)": {mw:56.10, phase:"g", tempUnit:"C", range:[0,1200], a:0.08288, b:0.0002564, c:-1.727e-7, d:5.050e-11},
+  "CO2(g)":       {mw:44.01, phase:"g", tempUnit:"C", range:[0,1200], a:0.03611, b:0.00004233, c:-2.887e-8, d:7.464e-12},
+  "CO(g)":        {mw:28.01, phase:"g", tempUnit:"C", range:[0,1200], a:0.02895, b:4.110e-6, c:3.548e-9, d:-2.220e-12},
+  "Ethane(g)":    {mw:30.07, phase:"g", tempUnit:"C", range:[0,1200], a:0.04937, b:0.0001392, c:-5.816e-8, d:7.280e-12},
+  "Ethylene(g)":  {mw:28.05, phase:"g", tempUnit:"C", range:[0,1200], a:0.04075, b:0.0001147, c:-6.891e-8, d:1.766e-11},
+  "Methane(g)":   {mw:16.04, phase:"g", tempUnit:"C", range:[0,1200], a:0.03431, b:0.00005469, c:3.661e-9, d:-1.100e-11},
+  "N2(g)":        {mw:28.02, phase:"g", tempUnit:"C", range:[0,1500], a:0.02900, b:2.199e-6, c:5.723e-9, d:-2.871e-12},
+  "NO2(g)":       {mw:46.01, phase:"g", tempUnit:"C", range:[0,1200], a:0.03607, b:0.0000397, c:-2.88e-8, d:7.87e-12},
+  "N2O4(g)":      {mw:92.02, phase:"g", tempUnit:"C", range:[0,300],  a:0.0757, b:0.000125, c:-1.13e-7, d:0},
+  "N2O(g)":       {mw:44.02, phase:"g", tempUnit:"C", range:[0,1200], a:0.03766, b:0.00004151, c:-2.694e-8, d:1.057e-11},
+  "O2(g)":        {mw:32.00, phase:"g", tempUnit:"C", range:[0,1500], a:0.02910, b:0.00001158, c:-6.076e-9, d:1.311e-12},
+  "n-Pentane(l)": {mw:72.15, phase:"l", tempUnit:"C", range:[0,36],   a:0.1554, b:0, c:0, d:0},
+  "n-Pentane(g)": {mw:72.15, phase:"g", tempUnit:"C", range:[0,1200], a:0.1148, b:0.0003409, c:-1.899e-7, d:4.226e-11},
+  "Propane(g)":   {mw:44.10, phase:"g", tempUnit:"C", range:[0,1200], a:0.068032, b:0.0002259, c:-1.311e-7, d:3.171e-11},
+  "Propylene(g)": {mw:42.08, phase:"g", tempUnit:"C", range:[0,1200], a:0.05958, b:0.0001771, c:-1.017e-7, d:2.460e-11},
+  "H2O(g)":       {mw:18.016,phase:"g", tempUnit:"C", range:[0,1500], a:0.03346, b:6.880e-6, c:7.604e-9, d:-3.593e-12}
+};
+
+// Table B.8 — specific enthalpies of selected gases, kJ/mol, ref: gas, 1 atm, 25C
+const H8_T = [0,25,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500];
+const H8 = {
+  Air:  [-0.72,0,2.19,5.15,8.17,11.24,14.37,17.55,20.80,24.10,27.46,30.86,34.31,37.81,41.34,44.89,48.45],
+  O2:   [-0.73,0,2.24,5.31,8.47,11.72,15.03,18.41,21.86,25.35,28.89,32.47,36.07,39.70,43.38,47.07,50.77],
+  N2:   [-0.73,0,2.19,5.13,8.12,11.15,14.24,17.39,20.59,23.86,27.19,30.56,33.99,37.46,40.97,44.51,48.06],
+  H2:   [-0.72,0,2.16,5.06,7.96,10.89,13.83,16.81,19.81,22.85,25.93,29.04,32.19,35.39,38.62,41.90,45.22],
+  CO:   [-0.73,0,2.19,5.16,8.17,11.25,14.38,17.57,20.82,24.13,27.49,30.91,34.37,37.87,41.40,44.95,48.51],
+  CO2:  [-0.92,0,2.90,7.08,11.58,16.35,21.34,26.53,31.88,37.36,42.94,48.60,54.33,60.14,65.98,71.89,77.84],
+  H2O:  [-0.84,0,2.54,6.01,9.57,13.23,17.01,20.91,24.92,29.05,33.32,37.69,42.18,46.78,51.47,56.25,61.09]
+};
+
+// Table B.1 subset — physical property data
+// mw, tm(C), dHm(kJ/mol), tb(C), dHv(kJ/mol), tc(K), pc(atm), dHf(kJ/mol), dHc(kJ/mol)
+const PROPS = {
+  "Methane":        {formula:"CH4",   mw:16.04, tm:-182.5, dHm:0.94, tb:-161.5, dHv:8.19,  tc:190.7, pc:45.8, dHf:-74.85,  dHc:-890.36},
+  "Ethane":         {formula:"C2H6",  mw:30.07, tm:-183.3, dHm:2.86, tb:-88.6,  dHv:14.72, tc:305.4, pc:48.2, dHf:-84.68,  dHc:-1559.9},
+  "Propane":        {formula:"C3H8",  mw:44.10, tm:-187.7, dHm:3.52, tb:-42.1,  dHv:18.77, tc:369.8, pc:42.0, dHf:-103.8,  dHc:-2220.0},
+  "n-Butane":       {formula:"C4H10", mw:58.12, tm:-138.3, dHm:4.66, tb:-0.5,   dHv:22.31, tc:425.2, pc:37.5, dHf:-125.6,  dHc:-2877.6},
+  "Isobutane":      {formula:"C4H10", mw:58.12, tm:-159.6, dHm:4.54, tb:-11.7,  dHv:21.29, tc:408.1, pc:36.0, dHf:-134.5,  dHc:-2868.8},
+  "Ethylene":       {formula:"C2H4",  mw:28.05, tm:-169.2, dHm:3.35, tb:-103.7, dHv:13.54, tc:283.1, pc:50.5, dHf:52.4,    dHc:-1409.3},
+  "Propylene":      {formula:"C3H6",  mw:42.08, tm:-185.2, dHm:3.00, tb:-47.7,  dHv:18.42, tc:365.1, pc:45.4, dHf:20.4,    dHc:-2058.0},
+  "Acetylene":      {formula:"C2H2",  mw:26.04, tm:-80.8,  dHm:null, tb:-84.0,  dHv:17.6,  tc:308.3, pc:61.6, dHf:226.75,  dHc:-1299.6},
+  "n-Pentane":      {formula:"C5H12", mw:72.15, tm:-129.7, dHm:8.4,  tb:36.1,   dHv:26.4,  tc:469.7, pc:33.3, dHf:-146.4,  dHc:-3509.0},
+  "Benzene":        {formula:"C6H6",  mw:78.11, tm:5.53,   dHm:9.84, tb:80.1,   dHv:30.77, tc:562.1, pc:48.3, dHf:48.66,   dHc:-3267.7},
+  "Toluene":        {formula:"C7H8",  mw:92.13, tm:-94.99, dHm:6.62, tb:110.6,  dHv:33.47, tc:593.9, pc:40.3, dHf:12.0,    dHc:-3909.9},
+  "Methanol":       {formula:"CH3OH", mw:32.04, tm:-97.9,  dHm:3.16, tb:64.7,   dHv:35.27, tc:513.2, pc:78.5, dHf:-238.6,  dHc:-726.6},
+  "Ethanol":        {formula:"C2H5OH",mw:46.07, tm:-114.6, dHm:5.02, tb:78.5,   dHv:38.58, tc:516.3, pc:63.0, dHf:-277.63, dHc:-1366.9},
+  "Water(l)":       {formula:"H2O",   mw:18.016,tm:0.0,    dHm:6.01, tb:100.0,  dHv:40.66, tc:647.4, pc:218.3,dHf:-285.84, dHc:null},
+  "Water(g)":       {formula:"H2O",   mw:18.016,tm:null,   dHm:null, tb:null,   dHv:null,  tc:null,  pc:null, dHf:-241.83, dHc:null},
+  "Carbon dioxide": {formula:"CO2",   mw:44.01, tm:-56.6,  dHm:null, tb:-78.5,  dHv:null,  tc:304.2, pc:72.9, dHf:-393.5,  dHc:null},
+  "Carbon monoxide":{formula:"CO",    mw:28.01, tm:-205.1, dHm:0.837,tb:-191.5, dHv:6.04,  tc:133.0, pc:34.5, dHf:-110.52, dHc:-282.99},
+  "Ammonia":        {formula:"NH3",   mw:17.03, tm:-77.7,  dHm:5.65, tb:-33.4,  dHv:23.35, tc:405.5, pc:111.3,dHf:-46.19,  dHc:-382.58},
+  "Hydrogen":       {formula:"H2",    mw:2.016, tm:-259.2, dHm:0.12, tb:-252.8, dHv:0.90,  tc:33.3,  pc:12.8, dHf:0,       dHc:-285.84},
+  "Oxygen":         {formula:"O2",    mw:32.00, tm:-218.8, dHm:0.444,tb:-183.0, dHv:6.82,  tc:154.4, pc:49.7, dHf:0,       dHc:null},
+  "Nitrogen":       {formula:"N2",    mw:28.02, tm:-210.0, dHm:0.72, tb:-195.8, dHv:5.58,  tc:126.2, pc:33.5, dHf:0,       dHc:null},
+  "Sulfur dioxide": {formula:"SO2",   mw:64.07, tm:-75.5,  dHm:null, tb:-10.0,  dHv:null,  tc:430.7, pc:77.8, dHf:-296.9,  dHc:null},
+  "Hydrogen chloride":{formula:"HCl", mw:36.47, tm:-114.2, dHm:1.99, tb:-85.0,  dHv:16.1,  tc:324.6, pc:81.5, dHf:-92.31,  dHc:null},
+  "Sodium hydroxide":{formula:"NaOH", mw:40.0,  tm:318,    dHm:null, tb:1390,   dHv:null,  tc:null,  pc:null, dHf:-426.6,  dHc:null},
+  "Sodium chloride":{formula:"NaCl",  mw:58.45, tm:808,    dHm:null, tb:1465,   dHv:null,  tc:null,  pc:null, dHf:-411.0,  dHc:null},
+  "Calcium carbonate":{formula:"CaCO3",mw:100.09,tm:null,  dHm:null, tb:null,   dHv:null,  tc:null,  pc:null, dHf:-1207.1, dHc:null},
+  "Calcium oxide":  {formula:"CaO",   mw:56.08, tm:2570,   dHm:null, tb:null,   dHv:null,  tc:null,  pc:null, dHf:-635.6,  dHc:null},
+  "Sulfuric acid":  {formula:"H2SO4", mw:98.08, tm:10.35,  dHm:9.87, tb:null,   dHv:null,  tc:null,  pc:null, dHf:-811.32, dHc:null},
+  "Acetic acid":    {formula:"CH3COOH",mw:60.05,tm:16.6,   dHm:12.09,tb:118.2,  dHv:24.39, tc:594.8, pc:57.1, dHf:-486.18, dHc:-871.69},
+  "Acetone":        {formula:"C3H6O", mw:58.08, tm:-95.0,  dHm:null, tb:56.0,   dHv:30.2,  tc:508.0, pc:47.0, dHf:-248.2,  dHc:-1821.4}
+};
+
+// Table B.4 — Antoine constants: log10 p*(mmHg) = A - B/(T(C)+C)
+const ANTOINE = {
+  "Acetaldehyde":{f:"C2H4O",range:[-0.2,34.4],A:8.00552,B:1600.017,C:291.809},
+  "Acetic acid":{f:"C2H4O2",range:[29.8,126.5],A:7.38782,B:1533.313,C:222.309},
+  "Acetone":{f:"C3H6O",range:[-12.9,55.3],A:7.11714,B:1210.595,C:229.664},
+  "Ammonia":{f:"NH3",range:[-83,60],A:7.55466,B:1002.711,C:247.885},
+  "Aniline":{f:"C6H7N",range:[102.6,185.2],A:7.32010,B:1731.515,C:206.049},
+  "Benzene":{f:"C6H6",range:[14.5,80.9],A:6.89272,B:1203.531,C:219.888},
+  "n-Butane":{f:"C4H10",range:[-78.0,-0.3],A:6.82485,B:943.453,C:239.711},
+  "i-Butane":{f:"C4H10",range:[-85.1,-11.6],A:6.78866,B:899.617,C:241.942},
+  "1-Butanol":{f:"C4H10O",range:[89.2,125.7],A:7.36366,B:1305.198,C:173.427},
+  "1-Butene":{f:"C4H8",range:[-77.5,-3.7],A:6.53101,B:810.261,C:228.066},
+  "Carbon disulfide":{f:"CS2",range:[3.6,79.9],A:6.94279,B:1169.110,C:241.593},
+  "Carbon tetrachloride":{f:"CCl4",range:[14.1,76.0],A:6.87926,B:1212.021,C:226.409},
+  "Chlorobenzene":{f:"C6H5Cl",range:[62.0,131.7],A:6.97808,B:1431.053,C:217.550},
+  "Chloroform":{f:"CHCl3",range:[-10.4,60.3],A:6.95465,B:1170.966,C:226.232},
+  "Cyclohexane":{f:"C6H12",range:[19.9,81.6],A:6.84941,B:1206.001,C:223.148},
+  "n-Decane":{f:"C10H22",range:[94.5,175.1],A:6.95707,B:1503.568,C:194.738},
+  "Diethyl ether":{f:"C4H10O",range:[-60.8,19.9],A:6.92032,B:1064.066,C:228.799},
+  "Dimethylamine":{f:"C2H7N",range:[-71.8,6.9],A:7.08212,B:960.242,C:221.667},
+  "1,4-Dioxane":{f:"C4H8O2",range:[20.0,105.0],A:7.43155,B:1554.679,C:240.337},
+  "Ethanol":{f:"C2H6O",range:[19.6,93.4],A:8.11220,B:1592.864,C:226.184},
+  "Ethyl acetate":{f:"C4H8O2",range:[15.6,75.8],A:7.10179,B:1244.951,C:217.881},
+  "Ethylbenzene":{f:"C8H10",range:[56.5,137.1],A:6.95650,B:1423.543,C:213.091},
+  "Ethylene glycol":{f:"C2H6O2",range:[50.0,200.0],A:8.09083,B:2088.936,C:203.454},
+  "Formaldehyde":{f:"HCHO",range:[-109.4,-22.3],A:7.19578,B:970.595,C:244.124},
+  "Formic acid":{f:"CH2O2",range:[37.4,100.7],A:7.58178,B:1699.173,C:260.714},
+  "Glycerol":{f:"C3H8O3",range:[183.3,260.4],A:6.16501,B:1036.056,C:28.097},
+  "n-Heptane":{f:"C7H16",range:[25.9,99.3],A:6.90253,B:1267.828,C:216.823},
+  "n-Hexane":{f:"C6H14",range:[13.0,69.5],A:6.88555,B:1175.817,C:224.867},
+  "Methanol":{f:"CH3OH",range:[14.9,83.7],A:8.08097,B:1582.271,C:239.726},
+  "Methyl ethyl ketone":{f:"C4H8O",range:[42.8,88.4],A:7.06356,B:1261.339,C:221.969},
+  "Methylcyclohexane":{f:"C7H14",range:[25.6,101.8],A:6.82827,B:1273.673,C:221.723},
+  "Naphthalene":{f:"C10H8",range:[80.3,179.5],A:7.03358,B:1756.328,C:204.842},
+  "Nitrobenzene":{f:"C6H5NO2",range:[134.1,210.6],A:7.11562,B:1746.586,C:201.783},
+  "n-Nonane":{f:"C9H20",range:[70.3,151.8],A:6.93764,B:1430.459,C:201.808},
+  "n-Octane":{f:"C8H18",range:[52.9,126.6],A:6.91874,B:1351.756,C:209.100},
+  "n-Pentane":{f:"C5H12",range:[13.3,36.8],A:6.84471,B:1060.793,C:231.541},
+  "1-Pentanol":{f:"C5H12O",range:[74.7,156.0],A:7.18246,B:1287.625,C:161.330},
+  "Phenol":{f:"C6H6O",range:[107.2,181.8],A:7.13301,B:1516.790,C:174.954},
+  "1-Propanol":{f:"C3H8O",range:[60.2,104.6],A:7.74416,B:1437.686,C:198.463},
+  "2-Propanol":{f:"C3H8O",range:[52.3,89.3],A:7.74021,B:1359.517,C:197.527},
+  "Propionic acid":{f:"C3H6O2",range:[72.4,128.3],A:7.71423,B:1733.418,C:217.724},
+  "Pyridine":{f:"C5H5N",range:[67.3,152.9],A:7.04115,B:1373.799,C:214.979},
+  "Styrene":{f:"C8H8",range:[29.9,144.8],A:7.06623,B:1507.434,C:214.985},
+  "Toluene":{f:"C7H8",range:[35.3,111.5],A:6.95805,B:1346.773,C:219.693},
+  "Vinyl acetate":{f:"C4H6O2",range:[21.8,72.0],A:7.21010,B:1296.130,C:226.655},
+  "Water (0-60C)":{f:"H2O",range:[0,60],A:8.10765,B:1750.286,C:235.000},
+  "Water (60-150C)":{f:"H2O",range:[60,150],A:7.96681,B:1668.210,C:228.000},
+  "m-Xylene":{f:"C8H10",range:[59.2,140.0],A:7.00646,B:1460.183,C:214.827},
+  "o-Xylene":{f:"C8H10",range:[63.5,145.4],A:7.00154,B:1476.393,C:213.872},
+  "p-Xylene":{f:"C8H10",range:[58.3,139.3],A:6.98820,B:1451.792,C:215.111}
+};
+
+const R = {"m3Pa":8.314,"Latm":0.08206,"Lbar":0.08314,"cal":1.987,"ft3atm":0.7302,"ft3psia":10.73};
+
+// Unit conversion factors — FRB Appendix B, "Factors for Unit Conversions" table + gas constant page.
+// Not curve-fit/experimental data like CP/PROPS/ANTOINE; these are exact defined conversion factors.
+const PRESSURE_TO_BAR = {bar:1, atm:1.01325, kPa:0.01, Pa:0.00001, MPa:10, psi:0.0689476, mmHg:0.00133322, torr:0.00133322};
+const MASS_TO_KG   = {kg:1, g:0.001, lbm:0.453593, tonne:1000};
+const LENGTH_TO_M  = {m:1, cm:0.01, mm:0.001, km:1000, ft:0.3048, in:0.0254};
+const VOLUME_TO_M3 = {m3:1, L:0.001, mL:0.000001, gal:0.00378541, ft3:0.0283168};
+const ENERGY_TO_J  = {J:1, kJ:1000, cal:4.184, kcal:4184, BTU:1055.06, ftlbf:1.35582};
+const POWER_TO_W   = {W:1, kW:1000, hp:745.7, "BTU/min":17.5843, "BTU/hr":0.293071, "ftlbf/s":1.35582};
+const GC_USCS = 32.174; // lbm·ft/(lbf·s²) — numerically equal to standard gravity in ft/s², by design
+const G_SI = 9.81;      // m/s²
+const G_USCS = 32.174;  // ft/s²
+
+function convert(value, fromUnit, toUnit, table){
+  if(!(fromUnit in table)) throw new Error(`Unknown unit "${fromUnit}"`);
+  if(!(toUnit in table)) throw new Error(`Unknown unit "${toUnit}"`);
+  return value*table[fromUnit]/table[toUnit];
+}
+// temperature needs offsets, not just a multiplicative factor, so it's handled separately
+function toCelsius(T, unit){
+  if(unit==="C") return T;
+  if(unit==="F") return (T-32)*5/9;
+  if(unit==="K") return T-273.15;
+  if(unit==="R") return (T-491.67)*5/9;
+  throw new Error(`Unknown temperature unit "${unit}"`);
+}
+function fromCelsius(Tc, unit){
+  if(unit==="C") return Tc;
+  if(unit==="F") return Tc*9/5+32;
+  if(unit==="K") return Tc+273.15;
+  if(unit==="R") return (Tc+273.15)*9/5;
+  throw new Error(`Unknown temperature unit "${unit}"`);
+}
+
+// Table B.7 — Properties of Superheated Steam (FRB Appendix B, 4th ed., pp.650-651).
+// Reference state: triple point of water (NOT the same reference as Table B.8 / H8 above —
+// never mix Ĥ values between this table and H8/molarH; only differences WITHIN this table
+// are meaningful for an energy balance).
+// P in bar, T in °C. Ĥ = specific enthalpy (kJ/kg), Û = specific internal energy (kJ/kg),
+// V̂ = specific volume (m³/kg). "Sat'd Water"/"Sat'd Steam" columns are omitted where the
+// source shows "—" (P above the critical pressure, 220.9 bar / here listed as 221.2, has no
+// saturation point).
+// Two V̂ cells were flagged during transcription as inconsistent with the smooth trend of
+// their row (cross-checked against the ideal-gas limit and neighboring columns) and corrected:
+// 0.1 bar/400°C read as 21.1, corrected to 31.1; 200 bar/650-700°C read as 0.197/0.211,
+// corrected to 0.0197/0.0211 (both look like a dropped/misplaced digit in the scan). One more
+// (250 bar/650°C, V̂=0.0143) looks slightly low relative to its neighbors but wasn't confidently
+// re-readable — left as printed; treat that single cell with extra caution.
+const STEAM_B7_T = [50,75,100,150,200,250,300,350,400,450,500,550,600,650,700,750]; // °C
+const STEAM_B7 = {
+  "0":     {Tsat:null,  satWater:null,                                    satSteam:null,
+    H:[2595,2642,2689,2784,2880,2978,3077,3177,3280,3384,3497,3597,3706,3816,3929,4043],
+    U:[2446,2481,2517,2589,2662,2736,2812,2890,2969,3050,3132,3217,3303,3390,3480,3591],
+    V:[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]},
+  "0.1":   {Tsat:45.8,  satWater:{H:191.8,U:191.8,V:0.00101},             satSteam:{H:2584.8,U:2438.0,V:14.7},
+    H:[2593,2640,2688,2783,2880,2977,3077,3177,3280,3384,3489,3596,3706,3816,3929,4043],
+    U:[2444,2480,2516,2588,2661,2736,2812,2890,2969,3050,3132,3217,3303,3390,3480,3571],
+    V:[14.8,16.0,17.2,19.5,21.8,24.2,26.5,28.7,31.1,33.3,35.7,38.0,40.3,42.6,44.8,47.2]},
+  "0.5":   {Tsat:81.3,  satWater:{H:340.6,U:340.6,V:0.00103},             satSteam:{H:2646.0,U:2484.0,V:3.24},
+    H:[209.3,313.9,2683,2780,2878,2979,3076,3177,3279,3383,3489,3596,3705,3816,3929,4043],
+    U:[209.2,313.9,2512,2586,2660,2735,2811,2889,2969,3049,3132,3216,3302,3390,3480,3571],
+    V:[0.00101,0.00103,3.41,3.89,4.35,4.83,5.29,5.75,6.21,6.67,7.14,7.58,8.06,8.55,9.01,9.43]},
+  "1":     {Tsat:99.6,  satWater:{H:417.5,U:417.5,V:0.00104},             satSteam:{H:2675.4,U:2506.1,V:1.69},
+    H:[209.3,314.0,2676,2776,2875,2975,3074,3176,3278,3382,3488,3596,3705,3816,3928,4042],
+    U:[209.2,313.9,2507,2583,2658,2734,2811,2889,2968,3049,3132,3216,3302,3390,3479,3570],
+    V:[0.00101,0.00103,1.69,1.94,2.17,2.40,2.64,2.87,3.11,3.33,3.57,3.80,4.03,4.26,4.48,4.72]},
+  "5":     {Tsat:151.8, satWater:{H:640.1,U:639.6,V:0.00109},             satSteam:{H:2747.5,U:2560.2,V:0.375},
+    H:[209.7,314.3,419.4,632.2,2855,2961,3065,3168,3272,3379,3484,3592,3702,3813,3926,4040],
+    U:[209.2,313.8,418.8,631.6,2643,2724,2803,2883,2964,3045,3128,3213,3300,3388,3477,3569],
+    V:[0.00101,0.00103,0.00104,0.00109,0.425,0.474,0.522,0.571,0.617,0.664,0.711,0.758,0.804,0.850,0.897,0.943]},
+  "10":    {Tsat:179.9, satWater:{H:762.6,U:761.5,V:0.00113},             satSteam:{H:2776.2,U:2582,V:0.194},
+    H:[210.1,314.7,419.7,632.5,2827,2943,3052,3159,3264,3371,3478,3587,3697,3809,3923,4038],
+    U:[209.1,313.7,418.7,631.4,2621,2710,2794,2876,2958,3041,3124,3210,3296,3385,3475,3567],
+    V:[0.00101,0.00103,0.00104,0.00109,0.206,0.233,0.258,0.282,0.307,0.330,0.353,0.377,0.402,0.424,0.448,0.472]},
+  "20":    {Tsat:212.4, satWater:{H:908.6,U:906.2,V:0.00118},             satSteam:{H:2797.2,U:2598.2,V:0.09950},
+    H:[211.0,315.5,420.5,633.1,852.6,2902,3025,3139,3249,3358,3467,3578,3689,3802,3916,4032],
+    U:[209.0,313.5,418.4,603.9,850.2,2679,2774,2862,2946,3031,3115,3202,3290,3379,3470,3562],
+    V:[0.00101,0.00102,0.00104,0.00109,0.00116,0.111,0.125,0.139,0.151,0.163,0.175,0.188,0.200,0.211,0.223,0.235]},
+  "40":    {Tsat:250.3, satWater:{H:1087.4,U:1082.4,V:0.00125},           satSteam:{H:2800.3,U:2601.3,V:0.04975},
+    H:[212.7,317.1,422.0,634.3,853.4,1085.8,2962,3095,3216,3331,3445,3559,3673,3788,3904,4021],
+    U:[208.6,313.0,417.8,630.0,848.8,1080.8,2727,2829,2922,3011,3100,3188,3278,3368,3460,3554],
+    V:[0.00101,0.00102,0.00104,0.00109,0.00115,0.00125,0.0588,0.0665,0.0734,0.0799,0.0864,0.0926,0.0987,0.105,0.111,0.117]},
+  "60":    {Tsat:275.6, satWater:{H:1213.7,U:1205.8,V:0.00132},           satSteam:{H:2785.0,U:2590.4,V:0.0325},
+    H:[214.4,318.7,423.5,635.6,854.2,1085.8,2885,3046,3180,3303,3422,3539,3657,3774,3892,4011],
+    U:[208.3,312.6,417.3,629.1,847.3,1078.3,2668,2792,2896,2991,3083,3174,3265,3357,3451,3545],
+    V:[0.00101,0.00103,0.00104,0.00109,0.00115,0.00125,0.0361,0.0422,0.0474,0.0521,0.0566,0.0609,0.0652,0.0693,0.0735,0.0776]},
+  "80":    {Tsat:295.0, satWater:{H:1317.1,U:1306.0,V:0.00139},           satSteam:{H:2759.9,U:2571.7,V:0.0235},
+    H:[216.1,320.3,425.0,636.8,855.1,1085.8,2787,2990,3142,3274,3399,3520,3640,3759,3879,4000],
+    U:[208.1,312.3,416.7,628.2,845.9,1075.8,2593,2750,2867,2969,3065,3159,3252,3346,3441,3537],
+    V:[0.00101,0.00102,0.00104,0.00109,0.00115,0.00124,0.0243,0.0299,0.0344,0.0382,0.0417,0.0450,0.0483,0.0515,0.0547,0.0578]},
+  "100":   {Tsat:311.0, satWater:{H:1408.0,U:1393.5,V:0.00145},           satSteam:{H:2727.7,U:2547.3,V:0.0181},
+    H:[217.8,322.9,426.5,638.1,855.9,1085.8,1343.4,2926,3100,3244,3375,3500,3623,3745,3867,3989],
+    U:[207.8,311.7,416.1,627.3,844.4,1073.4,1329.4,2702,2836,2946,3047,3144,3240,3335,3431,3528],
+    V:[0.00101,0.00102,0.00104,0.00109,0.00115,0.00124,0.00140,0.0224,0.0264,0.0298,0.0328,0.0356,0.0383,0.0410,0.0435,0.0461]},
+  "150":   {Tsat:342.1, satWater:{H:1611.0,U:1586.1,V:0.00166},           satSteam:{H:2615.0,U:2459.9,V:0.0103},
+    H:[222.1,326.0,430.3,641.3,858.1,1086.2,1338.2,2695,2975,3160,3311,3448,3580,3708,3835,3962],
+    U:[207.0,310.7,414.7,625.0,841.0,1067.7,1317.6,2523,2744,2883,2999,3105,3207,3307,3407,3507],
+    V:[0.00101,0.00102,0.00104,0.00108,0.00114,0.00123,0.00138,0.0115,0.0157,0.0185,0.0208,0.0229,0.0249,0.0267,0.0286,0.0304]},
+  "200":   {Tsat:365.7, satWater:{H:1826.5,U:1785.7,V:0.00204},           satSteam:{H:2418.4,U:2300.8,V:0.005875},
+    H:[226.4,330.0,434.0,644.5,860.4,1086.7,1334.3,1647.1,2820,3064,3241,3394,3536,3671,3804,3935],
+    U:[206.3,309.7,413.2,622.9,837.7,1062.2,1307.1,1613.7,2622,2810,2946,3063,3172,3278,3382,3485],
+    V:[0.00100,0.00102,0.00103,0.00108,0.00114,0.00122,0.00136,0.00167,0.009950,0.0127,0.0148,0.0166,0.0182,0.0197,0.0211,0.0225]},
+  "221.2": {Tsat:374.15,satWater:{H:2108,U:2037.8,V:0.00317},             satSteam:{H:2108,U:2037.8,V:0.00317},
+    H:[228.2,331.7,435.7,645.8,861.4,1087.0,1332.8,1635.5,2733,3020,3210,3370,3516,3655,3790,3923],
+    U:[206.0,309.2,412.8,622.0,836.3,1060.0,1302.9,1600.3,2553,2776,2922,3045,3157,3265,3371,3476],
+    V:[0.00100,0.00102,0.00103,0.00108,0.00114,0.00122,0.00135,0.00163,0.008157,0.0110,0.0130,0.0147,0.0162,0.0176,0.0190,0.0202]},
+  "250":   {Tsat:null,  satWater:null,                                    satSteam:null,
+    H:[230.7,334.0,437.8,647.7,862.8,1087.5,1331.1,1625.0,2582,2954,3166,3337,3490,3633,3772,3908],
+    U:[205.7,308.7,412.1,620.8,834.4,1057.0,1297.5,1585.0,2432,2725,2888,3019,3137,3248,3356,3463],
+    V:[0.00100,0.00101,0.00103,0.00108,0.00113,0.00122,0.00135,0.00160,0.006013,0.009174,0.0111,0.0127,0.0141,0.0143,0.0166,0.0178]},
+  "300":   {Tsat:null,  satWater:null,                                    satSteam:null,
+    H:[235.0,338.1,441.6,650.9,865.2,1088.4,1328.7,1609.9,2162,2826,3085,3277,3443,3595,3740,3880],
+    U:[205.0,307.7,410.8,618.7,831.3,1052.1,1288.7,1563.3,2077,2623,2825,2972,3100,3218,3330,3441],
+    V:[0.0009990,0.00101,0.00103,0.00107,0.00113,0.00121,0.00133,0.00155,0.002830,0.006734,0.008680,0.0102,0.0114,0.0126,0.0136,0.0147]},
+  "500":   {Tsat:null,  satWater:null,                                    satSteam:null,
+    H:[251.9,354.2,456.8,664.1,875.4,1093.6,1323.7,1576.3,1878,2293,2723,3021,3248,3439,3610,3771],
+    U:[202.4,304.0,405.8,611.0,819.7,1034.3,1259.3,1504.1,1791,2169,2529,2765,2946,3091,3224,3350],
+    V:[0.0009911,0.00100,0.00102,0.00106,0.00111,0.00119,0.00129,0.00144,0.001726,0.002491,0.003882,0.005112,0.006112,0.007000,0.007722,0.008418]},
+  "1000":  {Tsat:null,  satWater:null,                                    satSteam:null,
+    H:[293.9,394.3,495.1,698.0,903.5,1113.0,1328.7,1550.5,1798,2051,2316,2594,2857,3105,3324,3526],
+    U:[196.5,295.7,395.1,594.4,795.3,999.0,1207.1,1419.0,1653,1888,2127,2369,2591,2795,2971,3131],
+    V:[0.0009737,0.0009852,0.001000,0.00104,0.00108,0.00114,0.00122,0.00131,0.001446,0.001628,0.001893,0.002246,0.002668,0.003106,0.003536,0.003953]}
+};
+const STEAM_B7_P = [0.0,0.1,0.5,1.0,5.0,10,20,40,60,80,100,150,200,221.2,250,300,500,1000]; // bar, ascending
+
+// Table B.10 — Atomic Heat Capacities for Kopp's Rule (FRB Appendix B, 4th ed., p.653).
+// Cpa in J/(g-atom·°C). Elements not listed fall back to "All Others".
+const KOPP_B10 = {
+  C:  {solid:7.5,  liquid:12},
+  H:  {solid:9.6,  liquid:18},
+  B:  {solid:11,   liquid:20},
+  Si: {solid:16,   liquid:24},
+  O:  {solid:17,   liquid:25},
+  F:  {solid:21,   liquid:29},
+  P:  {solid:23,   liquid:31},
+  S:  {solid:26,   liquid:31},
+  DEFAULT: {solid:26, liquid:33} // "All Others"
+};
+
+/* =========================================================================
+   ENGINE
+   ========================================================================= */
+
+function cpIntegral(entry, T1, T2){
+  // returns integral of Cp dT between T1,T2 (deg C as given by user); handles K-basis rows
+  let t1=T1, t2=T2;
+  if(entry.tempUnit==="K"){ t1=T1+273.15; t2=T2+273.15; }
+  const {a,b,c,d}=entry;
+  function F(T){ return a*T + b*T*T/2 + c*T*T*T/3 + d*T*T*T*T/4; }
+  return F(t2)-F(t1);
+}
+
+function interp(xs, ys, x){
+  if(x<=xs[0]) return ys[0] + (ys[1]-ys[0])*(x-xs[0])/(xs[1]-xs[0]);
+  for(let i=0;i<xs.length-1;i++){
+    if(x>=xs[i] && x<=xs[i+1]){
+      const frac=(x-xs[i])/(xs[i+1]-xs[i]);
+      return ys[i] + frac*(ys[i+1]-ys[i]);
+    }
+  }
+  const n=xs.length;
+  return ys[n-2] + (ys[n-1]-ys[n-2])*(x-xs[n-2])/(xs[n-1]-xs[n-2]);
+}
+
+function gasEnthalpy(species, T){ // kJ/mol relative to 25C, table lookup
+  return interp(H8_T, H8[species], T);
+}
+
+const H8_SPECIES = ["Air","O2","N2","H2","CO","CO2","H2O"];
+
+// generic per-mole enthalpy relative to 25C for a named species; uses B.8 if available else CP polynomial (gas)
+function molarH(name, T){
+  if(H8_SPECIES.includes(name)) return gasEnthalpy(name, T);
+  const key = name+"(g)";
+  if(CP[key]) return cpIntegral(CP[key], 25, T);
+  throw new Error("No enthalpy data for "+name);
+}
+
+function fmt(x, d=3){
+  if(x===null||x===undefined||isNaN(x)) return "—";
+  return Number(x).toLocaleString(undefined,{maximumFractionDigits:d, minimumFractionDigits:0});
+}
+
+/* -------------------------------------------------------------------------
+   Table B.7 (superheated steam) lookup engine — bilinear interpolation over
+   the P,T grid. Pure functions: no DOM access.
+   ------------------------------------------------------------------------- */
+
+function steamPRow(Pbar){
+  const key = STEAM_B7_P.find(p=>Math.abs(p-Pbar)<1e-9);
+  return key!==undefined ? STEAM_B7[String(key)] : null;
+}
+
+// log-log interpolation — used for specific volume across PRESSURE specifically, because V̂
+// scales roughly as 1/P (not linearly) and Table B.7's pressure rows are widely/unevenly
+// spaced (e.g. 1 to 5 bar in one step); linear interpolation of V̂ across such a wide P-span
+// is measurably wrong (checked against a known steam-table value at 4 bar: linear interp from
+// the 1 and 5 bar rows gives ~0.70 m³/kg vs. the correct ~0.46 m³/kg — log-log gives ~0.46).
+function logInterpV(x1, y1, x2, y2, x){
+  const t = (Math.log(x)-Math.log(x1))/(Math.log(x2)-Math.log(x1));
+  return Math.exp(Math.log(y1) + t*(Math.log(y2)-Math.log(y1)));
+}
+
+// returns {H, U, V} at (Pbar, T) via bilinear interpolation on the Table B.7 grid.
+// Throws if Pbar is outside [min,max] of STEAM_B7_P (no extrapolation in P — the
+// pressure rows are not evenly spaced, so extrapolating them is not reliable).
+// T outside STEAM_B7_T range is extrapolated off the end segment (same convention
+// as interp()/gasEnthalpy elsewhere in this file) with a caller-visible flag.
+function steamProps(Pbar, T){
+  const Ps = STEAM_B7_P;
+  if(Pbar < Ps[0] - 1e-9 || Pbar > Ps[Ps.length-1] + 1e-9){
+    throw new Error(`Pressure ${Pbar} bar is outside Table B.7's range (${Ps[0]}-${Ps[Ps.length-1]} bar).`);
+  }
+  const extrapolatedT = (T < STEAM_B7_T[0] || T > STEAM_B7_T[STEAM_B7_T.length-1]);
+  const exact = steamPRow(Pbar);
+  if(exact){
+    return { H: interp(STEAM_B7_T, exact.H, T), U: interp(STEAM_B7_T, exact.U, T),
+             V: interp(STEAM_B7_T, exact.V, T), extrapolatedT, Tsat: exact.Tsat };
+  }
+  // bracket on pressure, then interpolate each bracketing row at T, then interpolate across P
+  let lo=0; while(lo<Ps.length-2 && Ps[lo+1]<Pbar) lo++;
+  const p1=Ps[lo], p2=Ps[lo+1];
+  const row1=STEAM_B7[String(p1)], row2=STEAM_B7[String(p2)];
+  const H1=interp(STEAM_B7_T,row1.H,T), H2=interp(STEAM_B7_T,row2.H,T);
+  const U1=interp(STEAM_B7_T,row1.U,T), U2=interp(STEAM_B7_T,row2.U,T);
+  const V1=interp(STEAM_B7_T,row1.V,T), V2=interp(STEAM_B7_T,row2.V,T);
+  const frac=(Pbar-p1)/(p2-p1);
+  const V = (p1>0 && V1>0 && V2>0) ? logInterpV(p1,V1,p2,V2,Pbar) : V1+frac*(V2-V1);
+  return { H: H1+frac*(H2-H1), U: U1+frac*(U2-U1), V, extrapolatedT, Tsat: null };
+}
+
+// Saturated water/steam properties at an arbitrary pressure, from Table B.7's own
+// "Sat'd Water"/"Sat'd Steam" columns. If Pbar isn't one of B.7's tabulated rows, linearly
+// interpolates between the two bracketing rows' saturation values (NOT a full Table B.6 —
+// this toolkit doesn't have B.6's finer-grained saturation table, so this is an approximation
+// for pressures between B.7's rows; it is caller-visible via `interpolated`).
+// phase: "water" or "steam".
+function steamSatProps(Pbar, phase){
+  if(phase!=="water" && phase!=="steam") throw new Error('phase must be "water" or "steam"');
+  const key = "sat"+(phase==="water"?"Water":"Steam");
+  const Ps = STEAM_B7_P;
+  if(Pbar < Ps[0] - 1e-9 || Pbar > 221.2 + 1e-9){
+    throw new Error(`No saturation point at ${Pbar} bar — Table B.7 only has saturation data up to the critical pressure (221.2 bar).`);
+  }
+  const exact = steamPRow(Pbar);
+  if(exact){
+    if(!exact[key]) throw new Error(`Table B.7 has no saturation entry at ${Pbar} bar.`);
+    return { ...exact[key], Tsat: exact.Tsat, interpolated:false };
+  }
+  let lo=0; while(lo<Ps.length-2 && Ps[lo+1]<Pbar) lo++;
+  const p1=Ps[lo], p2=Ps[lo+1];
+  const row1=STEAM_B7[String(p1)], row2=STEAM_B7[String(p2)];
+  if(!row1[key] || !row2[key]) throw new Error(`Table B.7 has no saturation data bracketing ${Pbar} bar.`);
+  const frac=(Pbar-p1)/(p2-p1);
+  const lerp=(a,b)=>a+frac*(b-a);
+  const V1=row1[key].V, V2=row2[key].V;
+  const V = (p1>0 && V1>0 && V2>0) ? logInterpV(p1,V1,p2,V2,Pbar) : lerp(V1,V2);
+  return {
+    H: lerp(row1[key].H,row2[key].H), U: lerp(row1[key].U,row2[key].U), V,
+    Tsat: lerp(row1.Tsat,row2.Tsat), interpolated:true
+  };
+}
+
+// velocity of a stream through a circular pipe: v = mdot*Vhat/A (or Vdot/A), SI units in -> m/s out.
+function pipeVelocity(massFlow_kg_s, Vhat_m3_kg, diameter_m){
+  const A = Math.PI*diameter_m*diameter_m/4;
+  return massFlow_kg_s*Vhat_m3_kg/A;
+}
+
+// Resolves a stream's Ĥ/Û/V̂ either from a given T (superheated/subcooled, via steamProps)
+// or from saturation (via steamSatProps) when the stream is known to be saturated liquid/vapor
+// instead of at a stated temperature. state: "T" | "satV" | "satL".
+function resolveSteamState(Pbar, Tc, state){
+  if(state==="T") return steamProps(Pbar, Tc);
+  const sat = steamSatProps(Pbar, state==="satV" ? "steam" : "water");
+  return { H:sat.H, U:sat.U, V:sat.V, extrapolatedT:false, Tsat:sat.Tsat, interpolatedSat:sat.interpolated };
+}
+
+// General steady-flow (open-system) energy balance on a single steam stream, using Table B.7:
+//   Hdot + dEk_dot + dEp_dot = Q + Ws     (Ws = work done ON the system; see CONVENTIONS)
+// s1/s2 are pre-resolved states (see resolveSteamState) so this works for both T-specified and
+// saturated endpoints. d1_m/d2_m are optional (null => that end's velocity is neglected, i.e.
+// KE contribution from that end is 0 — for when no pipe diameter is given).
+// Exactly one of Q_kW / Ws_kW must be null; the function solves for it algebraically (linear).
+function steamSteadyFlowEnergyBalance({mdot_kg_s, s1, s2, d1_m, d2_m, dz_m, Q_kW, Ws_kW}){
+  if((Q_kW==null) === (Ws_kW==null)) throw new Error("Give exactly one of Q or Ws — the other is solved for.");
+  const v1 = d1_m ? pipeVelocity(mdot_kg_s, s1.V, d1_m) : 0;
+  const v2 = d2_m ? pipeVelocity(mdot_kg_s, s2.V, d2_m) : 0;
+  const dH_dot  = mdot_kg_s*(s2.H-s1.H);            // kJ/kg * kg/s = kW
+  const dEk_dot = mdot_kg_s*(v2*v2-v1*v1)/2/1000;   // (m/s)^2 -> kJ/kg via /1000, * kg/s = kW
+  const dEp_dot = mdot_kg_s*(dz_m||0)*G_SI/1000;    // m/s^2 * m -> J/kg -> kJ/kg via /1000
+  const sum = dH_dot+dEk_dot+dEp_dot;
+  const Q = Q_kW==null ? sum-Ws_kW : Q_kW;
+  const Ws = Ws_kW==null ? sum-Q_kW : Ws_kW;
+  return {v1,v2,dH_dot,dEk_dot,dEp_dot,Q,Ws};
+}
+
+// mean Cp (kJ/(kg*C)) of superheated steam at fixed P between T1 and T2, from
+// finite-differencing Table B.7's tabulated H — i.e. Cp_bar = [H(T2)-H(T1)]/(T2-T1).
+function steamMeanCp(Pbar, T1, T2){
+  if(T1===T2) throw new Error("T1 and T2 must differ.");
+  const h1=steamProps(Pbar,T1), h2=steamProps(Pbar,T2);
+  return (h2.H-h1.H)/(T2-T1);
+}
+
+// inverse lookup: given P and a target specific enthalpy (kJ/kg), solve for T (deg C)
+// by bisecting steamProps(Pbar,T).H - Htarget over the table's T range.
+function steamTempFromEnthalpy(Pbar, Htarget){
+  const tLo=STEAM_B7_T[0], tHi=STEAM_B7_T[STEAM_B7_T.length-1];
+  const f = T => steamProps(Pbar,T).H - Htarget;
+  let flo=f(tLo), fhi=f(tHi);
+  if(flo*fhi>0) throw new Error(`Target enthalpy ${Htarget} kJ/kg is outside the range Table B.7 covers at ${Pbar} bar (${fmt(tLo)}-${fmt(tHi)} °C).`);
+  let lo=tLo, hi=tHi;
+  for(let i=0;i<80;i++){ const mid=(lo+hi)/2, fm=f(mid); if(flo*fm<0){hi=mid;} else {lo=mid;flo=fm;} }
+  return (lo+hi)/2;
+}
+
+/* -------------------------------------------------------------------------
+   Chemical formula parsing + Kopp's rule (Table B.10) engine. Pure functions.
+   ------------------------------------------------------------------------- */
+
+// parses formulas like "Ca(OH)2", "CH3COOH", "(NH4)2SO4" into {element: count}.
+function parseFormula(str){
+  let i = 0;
+  function parseGroup(){
+    const counts = {};
+    while(i < str.length && str[i] !== ')'){
+      if(str[i] === '('){
+        i++;
+        const inner = parseGroup();
+        if(str[i] !== ')') throw new Error("Unbalanced parentheses in formula: "+str);
+        i++;
+        const mult = readNumber(1);
+        for(const el in inner) counts[el] = (counts[el]||0) + inner[el]*mult;
+      } else if(/[A-Z]/.test(str[i])){
+        let el = str[i]; i++;
+        while(i < str.length && /[a-z]/.test(str[i])){ el += str[i]; i++; }
+        if(!ELEMENTS[el]) throw new Error(`Unrecognized element symbol "${el}" in formula: ${str}`);
+        const n = readNumber(1);
+        counts[el] = (counts[el]||0) + n;
+      } else {
+        throw new Error(`Unexpected character "${str[i]}" in formula: ${str}`);
+      }
+    }
+    return counts;
+  }
+  function readNumber(def){
+    let numStr = "";
+    while(i < str.length && /[0-9]/.test(str[i])){ numStr += str[i]; i++; }
+    return numStr === "" ? def : parseInt(numStr, 10);
+  }
+  const result = parseGroup();
+  if(i !== str.length) throw new Error("Could not fully parse formula: "+str);
+  return result;
+}
+
+function formulaMW(counts){
+  let mw = 0;
+  for(const el in counts) mw += counts[el] * ELEMENTS[el];
+  return mw;
+}
+
+// Kopp's rule estimate of Cp (solid or liquid) from Table B.10 atomic contributions.
+// Returns Cp in J/(mol*C), kJ/(mol*C), and kJ/(kg*C), plus a per-element breakdown.
+function koppRuleCp(formulaStr, phase){
+  if(phase!=="solid" && phase!=="liquid") throw new Error('phase must be "solid" or "liquid"');
+  const counts = parseFormula(formulaStr);
+  const mw = formulaMW(counts);
+  let total = 0;
+  const breakdown = [];
+  for(const el in counts){
+    const entry = KOPP_B10[el] || KOPP_B10.DEFAULT;
+    const usedDefault = !KOPP_B10[el];
+    const Cpa = entry[phase];
+    const n = counts[el];
+    total += n*Cpa;
+    breakdown.push({element:el, count:n, Cpa_J_per_gatom_C:Cpa, usedDefault});
+  }
+  return {
+    mw,
+    Cp_J_per_mol_C: total,
+    Cp_kJ_per_mol_C: total/1000,
+    Cp_kJ_per_kg_C: (total/1000)/(mw/1000),
+    breakdown
+  };
+}
+
+/* -------------------------------------------------------------------------
+   General closed-system and open-system energy balances (FRB 7.3 and 7.4).
+   Both are linear in the unknown, so these just solve algebraically for
+   whichever single term is null — no bisection needed. Every term is a plain
+   caller-supplied number (already-computed ΔU/ΔH, ΔEk, ΔEp); these don't look
+   anything up from a table, so they work regardless of what substance or
+   process the numbers came from (steam tables, Cp integration, given
+   directly in a problem, etc.).
+
+   IMPORTANT SIGN-CONVENTION TRAP (this is FRB's own, not this toolkit's):
+     Closed system: ΔU + ΔEk + ΔEp = Q − W,  W = work done BY the system.
+     Open system:   ΔH + ΔEk + ΔEp = Q + Ws, Ws = work done ON the system.
+   W and Ws are NOT the same sign convention — flipping between the two
+   formulas without flipping the work term's sign is the single most common
+   mistake FRB flags with this material.
+   ------------------------------------------------------------------------- */
+function closedSystemBalance({dU, dEk, dEp, Q, W}){
+  const vals = {dU, dEk:dEk||0, dEp:dEp||0, Q, W};
+  const nullKeys = Object.keys({dU,Q,W}).filter(k=>vals[k]==null);
+  if(nullKeys.length!==1) throw new Error("Leave exactly one of ΔU, Q, W blank — the tool solves for it.");
+  const missing = nullKeys[0];
+  // dU + dEk + dEp = Q - W  =>  dU = Q - W - dEk - dEp ; Q = dU+dEk+dEp+W ; W = Q - dU-dEk-dEp
+  if(missing==="dU") vals.dU = vals.Q - vals.W - vals.dEk - vals.dEp;
+  else if(missing==="Q") vals.Q = vals.dU + vals.dEk + vals.dEp + vals.W;
+  else vals.W = vals.Q - vals.dU - vals.dEk - vals.dEp;
+  return vals;
+}
+function openSystemBalance({dH, dEk, dEp, Q, Ws}){
+  const vals = {dH, dEk:dEk||0, dEp:dEp||0, Q, Ws};
+  const nullKeys = Object.keys({dH,Q,Ws}).filter(k=>vals[k]==null);
+  if(nullKeys.length!==1) throw new Error("Leave exactly one of ΔH, Q, Ws blank — the tool solves for it.");
+  const missing = nullKeys[0];
+  // dH + dEk + dEp = Q + Ws
+  if(missing==="dH") vals.dH = vals.Q + vals.Ws - vals.dEk - vals.dEp;
+  else if(missing==="Q") vals.Q = vals.dH + vals.dEk + vals.dEp - vals.Ws;
+  else vals.Ws = vals.dH + vals.dEk + vals.dEp - vals.Q;
+  return vals;
+}
+
+/* -------------------------------------------------------------------------
+   Mechanical energy balance (single incompressible liquid stream, FRB 7.7):
+     ΔP/ρ + Δv²/2 + gΔz + F̂ = Ws/ṁ
+   Pure function, strict SI (Pa, kg/m³, m/s, m, J/kg — like steamSteadyFlowEnergyBalance
+   above). gc doesn't appear because SI force/mass units make it 1; the UI layer converts
+   any USCS inputs to SI before calling this, and converts the J/kg result back to whatever
+   the user wants (BTU/lbm, ft·lbf/lbm, ...) afterward. Density, velocities, elevations and
+   friction are all plain caller-supplied arguments — never a table lookup — so this works
+   for any liquid, not just water.
+   ------------------------------------------------------------------------- */
+function mechEnergyBalance({dP_Pa, rho_kgm3, v1_ms, v2_ms, dz_m, F_Jkg}){
+  const termP  = (dP_Pa||0)/rho_kgm3;
+  const termEk = ((v2_ms||0)*(v2_ms||0)-(v1_ms||0)*(v1_ms||0))/2;
+  const termEp = G_SI*(dz_m||0);
+  const F = F_Jkg||0;
+  const WsPerMass_Jkg = termP+termEk+termEp+F;
+  return {termP, termEk, termEp, F, WsPerMass_Jkg};
+}
+
+/* -------------------------------------------------------------------------
+   Ideal-solution mixing / dilution. Density is always a plain caller-supplied
+   argument here — not a table lookup — so this works for any pair of miscible
+   liquids (the toolkit's PROPS table doesn't carry density data at all).
+   ------------------------------------------------------------------------- */
+
+// 1/ρ_mix = Σ wᵢ/ρᵢ  (ideal/additive-volume mixing rule)
+function idealMixDensity(components){ // components: [{wt, rho}, ...], wt fractions should sum to 1
+  const invRho = components.reduce((s,c)=>s+c.wt/c.rho, 0);
+  return 1/invRho;
+}
+
+// Blend an initial solution (mass m1, mass-fraction x1) with an added stream (mass fraction x2)
+// to hit a target mass fraction x3. Solves the solute mass balance for the added mass m2:
+//   m1*x1 + m2*x2 = (m1+m2)*x3   =>   m2 = m1*(x3-x1)/(x2-x3)
+function blendToTarget({m1, x1, x2, x3}){
+  if(Math.abs(x2-x3)<1e-12) throw new Error("Target composition equals the added stream's composition — infinite/zero added mass, no unique solution.");
+  const m2 = m1*(x3-x1)/(x2-x3);
+  if(m2<0) throw new Error("Solved added mass is negative — target composition is not reachable by adding this stream (check whether you need to add or remove solute instead).");
+  return { m2, mTotal: m1+m2 };
+}
+
+/* =========================================================================
+   UI SCAFFOLD
+   ========================================================================= */
+const TABS = [
+  {id:"combustion", label:"Combustion & Energy Balance"},
+  {id:"exchanger", label:"Heat Exchanger / Sensible Heat"},
+  {id:"idealgas", label:"Ideal Gas Law"},
+  {id:"antoine", label:"Antoine Vapor Pressure"},
+  {id:"steamkopp", label:"Steam Tables & Kopp's Rule"},
+  {id:"mech", label:"Energy & Mechanical Balances"},
+  {id:"reference", label:"Reference Data"}
+];
+
+const nav = document.getElementById("tabnav");
+const main = document.getElementById("main");
+TABS.forEach((t,i)=>{
+  const b=document.createElement("button");
+  b.textContent=t.label; b.dataset.tab=t.id;
+  if(i===0) b.classList.add("active");
+  b.onclick=()=>selectTab(t.id);
+  nav.appendChild(b);
+});
+function selectTab(id){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active", b.dataset.tab===id));
+  document.querySelectorAll("section.tab").forEach(s=>s.classList.toggle("active", s.id===id));
+}
+
+main.innerHTML = `
+<section class="tab active" id="combustion"></section>
+<section class="tab" id="exchanger"></section>
+<section class="tab" id="idealgas"></section>
+<section class="tab" id="antoine"></section>
+<section class="tab" id="steamkopp"></section>
+<section class="tab" id="mech"></section>
+<section class="tab" id="reference"></section>
+`;
+
+/* =========================================================================
+   TAB 1: COMBUSTION & ENERGY BALANCE  (replicates the classic
+   "fuel + excess air -> complete combustion -> heat exchanger" problem)
+   ========================================================================= */
+const FUELS = {
+  "Methane (CH4)": {C:1,H:4,O:0, dHc: PROPS["Methane"].dHc, name:"Methane"},
+  "Ethane (C2H6)": {C:2,H:6,O:0, dHc: PROPS["Ethane"].dHc, name:"Ethane"},
+  "Propane (C3H8)": {C:3,H:8,O:0, dHc: PROPS["Propane"].dHc, name:"Propane"},
+  "n-Butane (C4H10)": {C:4,H:10,O:0, dHc: PROPS["n-Butane"].dHc, name:"n-Butane"},
+  "Ethylene (C2H4)": {C:2,H:4,O:0, dHc: PROPS["Ethylene"].dHc, name:"Ethylene"},
+  "Propylene (C3H6)": {C:3,H:6,O:0, dHc: PROPS["Propylene"].dHc, name:"Propylene"},
+  "Acetylene (C2H2)": {C:2,H:2,O:0, dHc: PROPS["Acetylene"].dHc, name:"Acetylene"},
+  "Methanol (CH4O)": {C:1,H:4,O:1, dHc: PROPS["Methanol"].dHc, name:"Methanol"}
+};
+
+document.getElementById("combustion").innerHTML = `
+<h2>Combustion Energy Balance</h2>
+<p class="note">Models: fuel + (stoichiometric + excess) air &rarr; complete combustion (all fuel reacts, all C&rarr;CO<sub>2</sub>, all H&rarr;H<sub>2</sub>O) &rarr; hot product gas. Solve for the unknown among <b>outlet temperature</b> or <b>heat duty Q</b>, given the other. Set Q = 0 for an adiabatic reactor, or leave outlet T blank and give Q instead.</p>
+<div class="row3">
+  <div><label>Fuel</label><select id="cb-fuel"></select></div>
+  <div><label>Fuel feed rate (mol, basis)</label><input id="cb-fuelmol" type="number" value="100"></div>
+  <div><label>% excess air</label><input id="cb-excess" type="number" value="70"></div>
+</div>
+<div class="row3">
+  <div><label>Fuel inlet T (&deg;C)</label><input id="cb-Tfuel" type="number" value="25"></div>
+  <div><label>Air inlet T (&deg;C)</label><input id="cb-Tair" type="number" value="25"></div>
+  <div><label>Water in products is</label>
+    <select id="cb-waterphase"><option value="g">vapor (g)</option><option value="l">liquid (l)</option></select>
+  </div>
+</div>
+<div class="row">
+  <div><label>Product outlet T (&deg;C) &mdash; leave blank to solve for it</label><input id="cb-Tout" type="number" placeholder="unknown"></div>
+  <div><label>Heat duty Q (kJ, + = added to system) &mdash; leave blank to solve for it</label><input id="cb-Q" type="number" placeholder="e.g. 0 for adiabatic"></div>
+</div>
+<button class="solve" onclick="solveCombustion()">Solve</button>
+<div id="cb-result"></div>
+<h3 style="margin-top:26px;">Downstream adiabatic air preheater</h3>
+<p class="note">Uses the fuel/rate/excess-air/water-phase settings above. Models a furnace whose hot product gas (leaving the furnace at a known temperature) passes through a separate <em>adiabatic</em> heat exchanger that preheats the incoming combustion air from ambient to a known preheat temperature before it enters the furnace &mdash; e.g. Felder &amp; Rousseau's classic "methane + excess air, preheat exchanger" problem. Solves for the temperature at which the product gas leaves the preheater.</p>
+<div class="row3">
+  <div><label>Air ambient T (&deg;C)</label><input id="ph-Tambient" type="number" value="25"></div>
+  <div><label>Air preheat exit T &mdash; into furnace (&deg;C)</label><input id="ph-Tpreheat" type="number" value="200"></div>
+  <div><label>Furnace product exit T &mdash; into preheater (&deg;C)</label><input id="ph-Tfurnace" type="number" value="800"></div>
+</div>
+<button class="solve" onclick="solvePreheater()">Solve preheater exit T</button>
+<div id="ph-result"></div>
+`;
+(function(){
+  const sel=document.getElementById("cb-fuel");
+  Object.keys(FUELS).forEach(k=>{const o=document.createElement("option"); o.value=k; o.textContent=k; sel.appendChild(o);});
+})();
+
+function combustionStoich(fuel, nFuel, pctEx){
+  // CxHyOz + (x + y/4 - z/2) O2 -> x CO2 + (y/2) H2O
+  const O2stoich = fuel.C + fuel.H/4 - fuel.O/2;
+  const O2fed = nFuel*O2stoich*(1+pctEx/100);
+  const N2fed = O2fed*(79/21);
+  const O2excess = O2fed - nFuel*O2stoich;
+  const nCO2 = nFuel*fuel.C;
+  const nH2O = nFuel*fuel.H/2;
+  return {O2stoich, O2fed, N2fed, O2excess, nCO2, nH2O};
+}
+function productMixH(T, waterPhase, s){
+  let h = s.nCO2*gasEnthalpy("CO2",T) + s.O2excess*gasEnthalpy("O2",T) + s.N2fed*gasEnthalpy("N2",T);
+  h += waterPhase==="g" ? s.nH2O*gasEnthalpy("H2O",T) : s.nH2O*0.075*(T-25); // liquid water Cp approx 0.075 kJ/mol/C
+  return h;
+}
+function airMixH(T, s){
+  return s.O2fed*gasEnthalpy("O2",T) + s.N2fed*gasEnthalpy("N2",T);
+}
+function bisect(f, lo, hi, iters=80){
+  let flo=f(lo), fhi=f(hi);
+  if(flo*fhi>0){ hi=hi*2+1000; fhi=f(hi); if(flo*fhi>0) throw new Error("No solution in a physically reasonable temperature range — the required energy change is too large for the moles/species given. Check that stream sizes and Q are realistic relative to each other."); }
+  for(let i=0;i<iters;i++){ const mid=(lo+hi)/2, fm=f(mid); if(flo*fm<0){hi=mid;fhi=fm;} else {lo=mid;flo=fm;} }
+  return (lo+hi)/2;
+}
+
+function solveCombustion(){
+  const out=document.getElementById("cb-result");
+  try{
+    const fuelKey = document.getElementById("cb-fuel").value;
+    const fuel = FUELS[fuelKey];
+    const nFuel = parseFloat(document.getElementById("cb-fuelmol").value);
+    const pctEx = parseFloat(document.getElementById("cb-excess").value);
+    const Tfuel = parseFloat(document.getElementById("cb-Tfuel").value);
+    const Tair = parseFloat(document.getElementById("cb-Tair").value);
+    const waterPhase = document.getElementById("cb-waterphase").value;
+    let Tout = document.getElementById("cb-Tout").value;
+    let Q = document.getElementById("cb-Q").value;
+    Tout = Tout==="" ? null : parseFloat(Tout);
+    Q = Q==="" ? null : parseFloat(Q);
+    if(Tout===null && Q===null) throw new Error("Provide either outlet T or Q — leave exactly one blank to solve for it.");
+    if(Tout!==null && Q!==null) throw new Error("Leave one of outlet T or Q blank; the tool solves for whichever is missing.");
+
+    const {O2stoich, O2fed, N2fed, O2excess, nCO2, nH2O} = combustionStoich(fuel, nFuel, pctEx);
+
+    let steps = [];
+    steps.push(`Fuel: ${fuel.name}  (C${fuel.C}H${fuel.H}${fuel.O?"O"+fuel.O:""}),  basis ${fmt(nFuel,2)} mol fed`);
+    steps.push(`Stoichiometric O2 required = ${fmt(O2stoich,4)} mol O2 / mol fuel`);
+    steps.push(`O2 fed (with ${pctEx}% excess) = ${fmt(nFuel*O2stoich,3)} x ${(1+pctEx/100).toFixed(3)} = ${fmt(O2fed,3)} mol`);
+    steps.push(`N2 fed (79/21 with O2, dry air) = ${fmt(N2fed,3)} mol`);
+    steps.push(`Total air fed = ${fmt(O2fed+N2fed,3)} mol`);
+    steps.push(``);
+    steps.push(`Complete combustion products:`);
+    steps.push(`  CO2 = ${fmt(nCO2,3)} mol,  H2O = ${fmt(nH2O,3)} mol,  O2 (excess) = ${fmt(O2excess,3)} mol,  N2 = ${fmt(N2fed,3)} mol`);
+
+    // Heat of reaction at 25C using heat of combustion (products: CO2(g), H2O(l) basis by definition of dHc)
+    // dHrxn(25C, water as liquid) = nFuel * dHc(fuel)
+    let dHrxn25_liquidWaterBasis = nFuel*fuel.dHc; // negative number (kJ)
+    // If we want water as vapor in the energy balance reference, add heat of vaporization of the product water
+    // (since dHc is defined with H2O(l) as product)
+    const dHvapH2O = 40.66; // kJ/mol at 100C used as standard correction (Felder convention)
+    let dHrxn25 = dHrxn25_liquidWaterBasis;
+    if(waterPhase==="g"){
+      dHrxn25 = dHrxn25_liquidWaterBasis + nH2O*dHvapH2O;
+    }
+    steps.push(``);
+    steps.push(`Heat of combustion (fuel) at 25C, product water taken as liquid: ${fmt(nFuel,2)} mol x ${fmt(fuel.dHc,1)} kJ/mol = ${fmt(dHrxn25_liquidWaterBasis,1)} kJ`);
+    if(waterPhase==="g"){
+      steps.push(`Correcting for water product as VAPOR (add n(H2O)*dHv,H2O@25C=40.66 kJ/mol): ${fmt(dHrxn25_liquidWaterBasis,1)} + ${fmt(nH2O,3)}x40.66 = ${fmt(dHrxn25,1)} kJ`);
+    }
+
+    // Reference-state method: choose 25C, gas, 1 atm as reference for all species.
+    const s = {O2stoich, O2fed, N2fed, O2excess, nCO2, nH2O};
+    function productH(T){ return productMixH(T, waterPhase, s); }
+    function reactantHsplit(){
+      let h = airMixH(Tair, s);
+      const fuelCpKey = fuel.name+"(g)";
+      if(CP[fuelCpKey]) h += nFuel*cpIntegral(CP[fuelCpKey],25,Tfuel);
+      return h;
+    }
+    const Hin_actual = reactantHsplit();
+
+    // Energy balance: Q = H_out(products at Tout) - H_in(reactants at Tfuel,Tair) + dHrxn25 ... using
+    // the "heat of reaction" method: Q = sum(n_out*Hout_hat) - sum(n_in*Hin_hat) + dHrxn(25C)
+    steps.push(``);
+    steps.push(`Energy balance (heat-of-reaction / reference-state method):`);
+    steps.push(`  Q = [sum n_out*(H_hat_out - H_hat_ref)] - [sum n_in*(H_hat_in - H_hat_ref)] + dHrxn(25C)`);
+    steps.push(`  Reactant sensible-heat term (fuel@${Tfuel}C, air@${Tair}C -> 25C ref) = ${fmt(Hin_actual,2)} kJ`);
+
+    function solveForToutGivenQ(Qval){
+      const target = Qval - dHrxn25 + Hin_actual;
+      return bisect(T => productH(T) - target, Tair, 3000);
+    }
+
+    let solvedTout=Tout, solvedQ=Q;
+    if(Tout===null){
+      solvedTout = solveForToutGivenQ(Q);
+      steps.push(`  Solving for outlet T given Q = ${fmt(Q,2)} kJ ...`);
+      steps.push(`  => Outlet product temperature = ${fmt(solvedTout,1)} °C`);
+    } else {
+      const Hout = productH(Tout);
+      solvedQ = Hout - Hin_actual + dHrxn25;
+      steps.push(`  Product sensible-heat term at Tout=${Tout}C = ${fmt(Hout,2)} kJ`);
+      steps.push(`  => Q = ${fmt(Hout,2)} - ${fmt(Hin_actual,2)} + (${fmt(dHrxn25,1)}) = ${fmt(solvedQ,2)} kJ`);
+    }
+
+    out.innerHTML = `<div class="result">
+      <b>${Tout===null? "Solved outlet temperature: "+fmt(solvedTout,1)+" &deg;C" : "Solved heat duty Q: "+fmt(solvedQ,2)+" kJ"}</b>
+      <div class="steps">${steps.join("\n")}</div>
+    </div>`;
+  }catch(e){
+    out.innerHTML = `<div class="result err">${e.message}</div>`;
+  }
+}
+
+function solvePreheater(){
+  const out=document.getElementById("ph-result");
+  try{
+    const fuelKey = document.getElementById("cb-fuel").value;
+    const fuel = FUELS[fuelKey];
+    const nFuel = parseFloat(document.getElementById("cb-fuelmol").value);
+    const pctEx = parseFloat(document.getElementById("cb-excess").value);
+    const waterPhase = document.getElementById("cb-waterphase").value;
+    const Tambient = parseFloat(document.getElementById("ph-Tambient").value);
+    const Tpreheat = parseFloat(document.getElementById("ph-Tpreheat").value);
+    const Tfurnace = parseFloat(document.getElementById("ph-Tfurnace").value);
+
+    const s = combustionStoich(fuel, nFuel, pctEx);
+    let steps=[];
+    steps.push(`Fuel: ${fuel.name}, basis ${fmt(nFuel,2)} mol -> O2 fed=${fmt(s.O2fed,3)} mol, N2 fed=${fmt(s.N2fed,3)} mol`);
+    steps.push(`Products: CO2=${fmt(s.nCO2,3)}, H2O=${fmt(s.nH2O,3)}, O2(xs)=${fmt(s.O2excess,3)}, N2=${fmt(s.N2fed,3)} mol`);
+
+    const airGain = airMixH(Tpreheat, s) - airMixH(Tambient, s);
+    steps.push(``);
+    steps.push(`Heat gained by air, ${Tambient}C -> ${Tpreheat}C:`);
+    steps.push(`  dH_air = O2_fed x [H(O2,${Tpreheat})-H(O2,${Tambient})] + N2_fed x [H(N2,${Tpreheat})-H(N2,${Tambient})] = ${fmt(airGain,2)} kJ`);
+    steps.push(``);
+    steps.push(`Adiabatic preheater (Q=0): heat gained by air = heat lost by furnace product gas`);
+    steps.push(`  dH_air + dH_products(${Tfurnace}C -> Tstack) = 0`);
+    steps.push(`  => productMixH(Tstack) = productMixH(${Tfurnace}) - ${fmt(airGain,2)}`);
+
+    const target = productMixH(Tfurnace, waterPhase, s) - airGain;
+    const Tstack = bisect(T => productMixH(T, waterPhase, s) - target, -200, Tfurnace+50);
+    steps.push(``);
+    steps.push(`Solving for Tstack (bisection): Tstack = ${fmt(Tstack,1)} °C`);
+
+    out.innerHTML = `<div class="result">
+      <b>Product gas leaves the preheater at ${fmt(Tstack,1)} &deg;C</b>
+      <div class="steps">${steps.join("\n")}</div>
+    </div>`;
+  }catch(e){
+    out.innerHTML = `<div class="result err">${e.message}</div>`;
+  }
+}
+
+/* =========================================================================
+   TAB 2: HEAT EXCHANGER / SENSIBLE HEAT
+   Two-stream adiabatic (or Q-specified) exchanger + a simple single-stream
+   sensible-heat calculator. Covers the classic "cold stream in, hot stream
+   in, solve exit T" problem (e.g. the preheater step of Example 12).
+   ========================================================================= */
+const ALL_SPECIES = Object.keys(CP).map(k=>k.replace(/\(.\)$/,"")).filter((v,i,a)=>a.indexOf(v)===i).concat(H8_SPECIES).filter((v,i,a)=>a.indexOf(v)===i);
+
+document.getElementById("exchanger").innerHTML = `
+<h2>Two-Stream Heat Exchanger</h2>
+<p class="note">Stream A gains/loses heat to Stream B (e.g. cold air being preheated by hot combustion products). Give both streams' compositions and known temperatures; leave <b>one</b> temperature blank to solve it from the energy balance <code>Q = &Delta;H_A + &Delta;H_B</code> (Q=0 for adiabatic).</p>
+<div id="streamsWrap"></div>
+<div class="row">
+  <div><label>Heat added to the system, Q (kJ)</label><input id="hx-Q" type="number" value="0"></div>
+  <div></div>
+</div>
+<button class="solve" onclick="solveExchanger()">Solve</button>
+<div id="hx-result"></div>
+<h3 style="margin-top:26px;">Quick single-stream sensible heat (&Delta;H = n&int;Cp dT)</h3>
+<div class="row3">
+  <div><label>Species (gas)</label><select id="sh-species"></select></div>
+  <div><label>Moles</label><input id="sh-n" type="number" value="1"></div>
+  <div><label>T1 &rarr; T2 (&deg;C)</label>
+    <div style="display:flex; gap:6px;"><input id="sh-T1" type="number" value="25"><input id="sh-T2" type="number" value="200"></div>
+  </div>
+</div>
+<button class="solve" onclick="solveSensible()">Compute &Delta;H</button>
+<div id="sh-result"></div>
+`;
+(function(){
+  const sel=document.getElementById("sh-species");
+  ALL_SPECIES.forEach(s=>{const o=document.createElement("option");o.value=s;o.textContent=s;sel.appendChild(o);});
+  sel.value="Methane";
+})();
+
+function speciesEnthalpyAtT(name, T){
+  return molarH(name, T);
+}
+
+function solveSensible(){
+  const out=document.getElementById("sh-result");
+  try{
+    const sp=document.getElementById("sh-species").value;
+    const n=parseFloat(document.getElementById("sh-n").value);
+    const T1=parseFloat(document.getElementById("sh-T1").value);
+    const T2=parseFloat(document.getElementById("sh-T2").value);
+    const h1=speciesEnthalpyAtT(sp,T1), h2=speciesEnthalpyAtT(sp,T2);
+    const dH = n*(h2-h1);
+    out.innerHTML=`<div class="result">
+      <b>&Delta;H = ${fmt(dH,3)} kJ</b>
+      <div class="steps">H_hat(${sp}, ${T1}&deg;C) = ${fmt(h1,4)} kJ/mol (rel. to 25&deg;C)
+H_hat(${sp}, ${T2}&deg;C) = ${fmt(h2,4)} kJ/mol (rel. to 25&deg;C)
+n = ${fmt(n,3)} mol
+&Delta;H = n x [H_hat(T2) - H_hat(T1)] = ${fmt(n,3)} x [${fmt(h2,4)} - ${fmt(h1,4)}] = ${fmt(dH,3)} kJ</div>
+    </div>`;
+  }catch(e){
+    out.innerHTML=`<div class="result err">${e.message}</div>`;
+  }
+}
+
+function streamRowHTML(label, idx){
+  let opts = ALL_SPECIES.map(s=>`<option value="${s}">${s}</option>`).join("");
+  return `<div class="streamRow" data-idx="${idx}">
+    <div><label>${label} species</label><select class="stream-sp">${opts}</select></div>
+    <div><label>moles</label><input class="stream-n" type="number" value="1"></div>
+    <div><label>T (&deg;C)</label><input class="stream-T" type="number" placeholder="e.g. 25"></div>
+    <div></div>
+  </div>`;
+}
+document.getElementById("streamsWrap").innerHTML = `
+  <h3>Stream A (in &rarr; out)</h3>
+  <div class="row">
+    <div><label>Species</label><select id="a-sp">${ALL_SPECIES.map(s=>`<option value="${s}">${s}</option>`).join("")}</select></div>
+    <div><label>Moles</label><input id="a-n" type="number" value="340"></div>
+  </div>
+  <div class="row">
+    <div><label>T in (&deg;C)</label><input id="a-Tin" type="number" value="25"></div>
+    <div><label>T out (&deg;C) &mdash; leave blank to solve</label><input id="a-Tout" type="number" value="200"></div>
+  </div>
+  <h3>Stream B (in &rarr; out)</h3>
+  <div class="row">
+    <div><label>Species</label><select id="b-sp">${ALL_SPECIES.map(s=>`<option value="${s}">${s}</option>`).join("")}</select></div>
+    <div><label>Moles</label><input id="b-n" type="number" value="100"></div>
+  </div>
+  <div class="row">
+    <div><label>T in (&deg;C)</label><input id="b-Tin" type="number" value="800"></div>
+    <div><label>T out (&deg;C) &mdash; leave blank to solve</label><input id="b-Tout" type="number" placeholder="unknown"></div>
+  </div>
+  <p class="note">This models a single-component-per-stream exchanger. For multi-component streams (like real combustion products), use the Combustion tab, which already builds the full product mixture.</p>
+`;
+document.getElementById("a-sp").value="O2";
+document.getElementById("b-sp").value="CO2";
+
+function solveExchanger(){
+  const out=document.getElementById("hx-result");
+  try{
+    const aSp=document.getElementById("a-sp").value, aN=parseFloat(document.getElementById("a-n").value);
+    const bSp=document.getElementById("b-sp").value, bN=parseFloat(document.getElementById("b-n").value);
+    const aTin=parseFloat(document.getElementById("a-Tin").value);
+    const bTin=parseFloat(document.getElementById("b-Tin").value);
+    let aToutStr=document.getElementById("a-Tout").value, bToutStr=document.getElementById("b-Tout").value;
+    const Q=parseFloat(document.getElementById("hx-Q").value);
+    const aToutKnown = aToutStr!=="";
+    const bToutKnown = bToutStr!=="";
+    if(aToutKnown && bToutKnown) throw new Error("Leave one outlet temperature blank — the tool solves for it.");
+    if(!aToutKnown && !bToutKnown) throw new Error("At least one outlet temperature must be known.");
+
+    let steps=[];
+    if(!aToutKnown){
+      const bTout=parseFloat(bToutStr);
+      const dHb = bN*(speciesEnthalpyAtT(bSp,bTout)-speciesEnthalpyAtT(bSp,bTin));
+      // Q = dHa + dHb  => dHa = Q - dHb ; dHa = aN*(Ha(aTout)-Ha(aTin))
+      const target = Q - dHb;
+      function f(T){ return aN*(speciesEnthalpyAtT(aSp,T)-speciesEnthalpyAtT(aSp,aTin)) - target; }
+      let lo=-250, hi=3000, flo=f(lo), fhi=f(hi);
+      if(flo*fhi>0) throw new Error("Could not bracket a solution — check species/temperatures.");
+      for(let i=0;i<80;i++){ const mid=(lo+hi)/2, fm=f(mid); if(flo*fm<0){hi=mid;fhi=fm;} else {lo=mid;flo=fm;} }
+      const aTout=(lo+hi)/2;
+      steps.push(`Stream B: dH_B = ${fmt(bN,3)} x [H(${bSp},${bTout}C) - H(${bSp},${bTin}C)] = ${fmt(dHb,3)} kJ`);
+      steps.push(`Energy balance: Q = dH_A + dH_B  =>  dH_A = Q - dH_B = ${fmt(Q,3)} - (${fmt(dHb,3)}) = ${fmt(target,3)} kJ`);
+      steps.push(`Solve dH_A = n_A x [H(${aSp},T) - H(${aSp},${aTin}C)] = ${fmt(target,3)} for T  =>  T = ${fmt(aTout,2)} °C`);
+      out.innerHTML=`<div class="result"><b>Stream A outlet T = ${fmt(aTout,2)} &deg;C</b><div class="steps">${steps.join("\n")}</div></div>`;
+    } else {
+      const aTout=parseFloat(aToutStr);
+      const dHa = aN*(speciesEnthalpyAtT(aSp,aTout)-speciesEnthalpyAtT(aSp,aTin));
+      const target = Q - dHa;
+      function f(T){ return bN*(speciesEnthalpyAtT(bSp,T)-speciesEnthalpyAtT(bSp,bTin)) - target; }
+      let lo=-250, hi=3000, flo=f(lo), fhi=f(hi);
+      if(flo*fhi>0) throw new Error("Could not bracket a solution — check species/temperatures.");
+      for(let i=0;i<80;i++){ const mid=(lo+hi)/2, fm=f(mid); if(flo*fm<0){hi=mid;fhi=fm;} else {lo=mid;flo=fm;} }
+      const bTout=(lo+hi)/2;
+      steps.push(`Stream A: dH_A = ${fmt(aN,3)} x [H(${aSp},${aTout}C) - H(${aSp},${aTin}C)] = ${fmt(dHa,3)} kJ`);
+      steps.push(`Energy balance: Q = dH_A + dH_B  =>  dH_B = Q - dH_A = ${fmt(Q,3)} - (${fmt(dHa,3)}) = ${fmt(target,3)} kJ`);
+      steps.push(`Solve dH_B = n_B x [H(${bSp},T) - H(${bSp},${bTin}C)] = ${fmt(target,3)} for T  =>  T = ${fmt(bTout,2)} °C`);
+      out.innerHTML=`<div class="result"><b>Stream B outlet T = ${fmt(bTout,2)} &deg;C</b><div class="steps">${steps.join("\n")}</div></div>`;
+    }
+  }catch(e){
+    out.innerHTML=`<div class="result err">${e.message}</div>`;
+  }
+}
+
+/* =========================================================================
+   TAB 3: IDEAL GAS LAW
+   ========================================================================= */
+document.getElementById("idealgas").innerHTML = `
+<h2>Ideal Gas Law &mdash; PV = nRT</h2>
+<p class="note">Fill in three of the four values (P, V, n, T) and leave the one you want solved blank.</p>
+<div class="row3">
+  <div><label>P (atm)</label><input id="ig-P" type="number" placeholder="blank = solve"></div>
+  <div><label>V (L)</label><input id="ig-V" type="number" placeholder="blank = solve"></div>
+  <div><label>n (mol)</label><input id="ig-n" type="number" placeholder="blank = solve"></div>
+</div>
+<div class="row">
+  <div><label>T (&deg;C)</label><input id="ig-T" type="number" placeholder="blank = solve"></div>
+  <div><label>R</label><select id="ig-R">
+    <option value="Latm">0.08206 L·atm/(mol·K)</option>
+    <option value="Lbar">0.08314 L·bar/(mol·K)</option>
+    <option value="m3Pa">8.314 m³·Pa/(mol·K) [P in Pa]</option>
+  </select></div>
+</div>
+<button class="solve" onclick="solveIdealGas()">Solve</button>
+<div id="ig-result"></div>
+`;
+function solveIdealGas(){
+  const out=document.getElementById("ig-result");
+  try{
+    const Pstr=document.getElementById("ig-P").value, Vstr=document.getElementById("ig-V").value;
+    const nstr=document.getElementById("ig-n").value, Tstr=document.getElementById("ig-T").value;
+    const blanks=[Pstr,Vstr,nstr,Tstr].filter(s=>s==="").length;
+    if(blanks!==1) throw new Error("Leave exactly one field blank to solve for it.");
+    const Rval=R[document.getElementById("ig-R").value];
+    let P=Pstr===""?null:parseFloat(Pstr), V=Vstr===""?null:parseFloat(Vstr);
+    let n=nstr===""?null:parseFloat(nstr), Tc=Tstr===""?null:parseFloat(Tstr);
+    let TK = Tc===null?null:Tc+273.15;
+    let steps=[];
+    if(P===null){ P = n*Rval*TK/V; steps.push(`P = nRT/V = ${fmt(n,3)} x ${Rval} x ${fmt(TK,2)} / ${fmt(V,3)} = ${fmt(P,4)}`); }
+    else if(V===null){ V = n*Rval*TK/P; steps.push(`V = nRT/P = ${fmt(n,3)} x ${Rval} x ${fmt(TK,2)} / ${fmt(P,3)} = ${fmt(V,4)}`); }
+    else if(n===null){ n = P*V/(Rval*TK); steps.push(`n = PV/RT = ${fmt(P,3)} x ${fmt(V,3)} / (${Rval} x ${fmt(TK,2)}) = ${fmt(n,4)}`); }
+    else { TK = P*V/(Rval*n); Tc = TK-273.15; steps.push(`T = PV/nR = ${fmt(P,3)} x ${fmt(V,3)} / (${fmt(n,3)} x ${Rval}) = ${fmt(TK,2)} K = ${fmt(Tc,2)} °C`); }
+    out.innerHTML=`<div class="result"><b>P=${fmt(P,4)}, V=${fmt(V,4)}, n=${fmt(n,4)}, T=${fmt(Tc,2)}&deg;C (${fmt(TK,2)} K)</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+/* =========================================================================
+   TAB 4: ANTOINE VAPOR PRESSURE
+   ========================================================================= */
+document.getElementById("antoine").innerHTML = `
+<h2>Antoine Equation &mdash; Vapor Pressure</h2>
+<p class="note"><code>log10(p*) = A - B/(T + C)</code>, p* in mmHg, T in &deg;C. Give T to find p*, or p* to find T.</p>
+<div class="row">
+  <div><label>Compound</label><select id="an-cpd"></select></div>
+  <div><label>Solve for</label><select id="an-mode"><option value="p">p* given T</option><option value="T">T given p*</option></select></div>
+</div>
+<div class="row">
+  <div><label id="an-inlabel">T (&deg;C)</label><input id="an-in" type="number" value="25"></div>
+  <div><label>Pressure unit</label><select id="an-punit"><option value="mmHg">mmHg</option><option value="atm">atm</option><option value="kPa">kPa</option></select></div>
+</div>
+<button class="solve" onclick="solveAntoine()">Solve</button>
+<div id="an-result"></div>
+
+<h3 style="margin-top:26px;">Relative &amp; Molal Saturation</h3>
+<p class="note">Is a gas stream saturated with vapor A? <b>Relative saturation</b> (a.k.a. percentage saturation / relative humidity if A=water) = p<sub>A</sub>/p<sub>A</sub><sup>*</sup> &times; 100%.
+<b>Molal saturation</b> compares actual vs. saturation mole ratio of A to A-free gas: [y<sub>A</sub>/(1&minus;y<sub>A</sub>)] / [y<sub>A</sub><sup>*</sup>/(1&minus;y<sub>A</sub><sup>*</sup>)] &times; 100%, where y<sub>A</sub><sup>*</sup>=p<sub>A</sub><sup>*</sup>/P.
+For steam specifically, you can also just compare T to Tsat(P) on the Steam Tables tab — if T &gt; Tsat, it's superheated (not saturated).</p>
+<div class="row3">
+  <div><label>Compound (A)</label><select id="sat-cpd"></select></div>
+  <div><label>T (&deg;C)</label><input id="sat-T" type="number" value="25"></div>
+  <div><label>System pressure P</label><input id="sat-P" type="number" value="760"></div>
+</div>
+<div class="row">
+  <div><label>Pressure unit (for P and p<sub>A</sub>)</label><select id="sat-punit"><option value="mmHg">mmHg</option><option value="atm">atm</option><option value="kPa">kPa</option></select></div>
+  <div><label>Actual partial pressure p<sub>A</sub>, OR mole fraction y<sub>A</sub></label>
+    <div style="display:flex; gap:6px;">
+      <input id="sat-pA" type="number" placeholder="pA (leave blank if using yA)">
+      <input id="sat-yA" type="number" placeholder="yA (leave blank if using pA)">
+    </div>
+  </div>
+</div>
+<button class="solve" onclick="solveSaturation()">Compute Saturation</button>
+<div id="sat-result"></div>
+`;
+(function(){
+  const sel=document.getElementById("an-cpd");
+  Object.keys(ANTOINE).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=`${k} (${ANTOINE[k].f})`;sel.appendChild(o);});
+  sel.value="Benzene";
+  document.getElementById("an-mode").onchange=function(){
+    document.getElementById("an-inlabel").innerHTML = this.value==="p" ? "T (&deg;C)" : "p* (in selected unit)";
+  };
+  const sel2=document.getElementById("sat-cpd");
+  Object.keys(ANTOINE).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=`${k} (${ANTOINE[k].f})`;sel2.appendChild(o);});
+  sel2.value="Water (0-60C)";
+})();
+
+function solveSaturation(){
+  const out=document.getElementById("sat-result");
+  try{
+    const cpd=document.getElementById("sat-cpd").value;
+    const T=parseFloat(document.getElementById("sat-T").value);
+    const punit=document.getElementById("sat-punit").value;
+    const Pstr=document.getElementById("sat-P").value;
+    const pAstr=document.getElementById("sat-pA").value;
+    const yAstr=document.getElementById("sat-yA").value;
+    if(pAstr==="" && yAstr==="") throw new Error("Give either the actual partial pressure pA or the mole fraction yA.");
+    if(pAstr!=="" && yAstr!=="") throw new Error("Give only one of pA or yA — the other is derived from system pressure P.");
+    const P_mmHg = parseFloat(Pstr)*ANTOINE_TO_MMHG[punit];
+    let steps=[];
+    if(antoineOutOfRange(cpd,T)) steps.push(`Warning: T=${T}C is outside this compound's fitted Antoine range — extrapolating.`);
+    let pA_mmHg, yA;
+    if(pAstr!==""){ pA_mmHg=parseFloat(pAstr)*ANTOINE_TO_MMHG[punit]; yA=pA_mmHg/P_mmHg; }
+    else { yA=parseFloat(yAstr); pA_mmHg=yA*P_mmHg; }
+    const {pStar, sr} = relativeSaturation(cpd, T, pA_mmHg);
+    steps.push(`p*(${cpd}, ${T}C) = ${fmt(pStar,4)} mmHg`);
+    steps.push(`pA = ${fmt(pA_mmHg,4)} mmHg (yA = ${fmt(yA,5)} at P = ${fmt(P_mmHg,4)} mmHg)`);
+    steps.push(`Relative saturation = pA/p* x 100 = ${fmt(pA_mmHg,4)}/${fmt(pStar,4)} x 100 = ${fmt(sr,2)}%`);
+    let smText = "";
+    try{
+      const {yAstar, sm} = molalSaturation(cpd, T, P_mmHg, yA);
+      steps.push(`yA* = p*/P = ${fmt(yAstar,5)}`);
+      steps.push(`Molal saturation = [yA/(1-yA)]/[yA*/(1-yA*)] x 100 = ${fmt(sm,2)}%`);
+      smText = `, molal saturation = ${fmt(sm,2)}%`;
+    }catch(e){ steps.push(`Molal saturation: ${e.message}`); }
+    const verdict = sr>=99.5 ? "at (or essentially at) saturation" : (sr>100 ? "supersaturated (unstable / condensation expected)" : "NOT saturated");
+    steps.push(``);
+    steps.push(`=> ${verdict}`);
+    out.innerHTML=`<div class="result"><b>Relative saturation = ${fmt(sr,2)}%${smText} — ${verdict}</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+const ANTOINE_TO_MMHG = {mmHg:1, atm:760, kPa:7.50062};
+
+// pure Antoine lookups, factored out of solveAntoine() so other tools (saturation calc) can reuse them
+function antoinePmmHg(compound, Tc){
+  const {A,B,C} = ANTOINE[compound];
+  return Math.pow(10, A - B/(Tc+C));
+}
+function antoineTc(compound, pMmHg){
+  const {A,B,C} = ANTOINE[compound];
+  return B/(A-Math.log10(pMmHg)) - C;
+}
+function antoineOutOfRange(compound, Tc){
+  const {range} = ANTOINE[compound];
+  return Tc<range[0]-5 || Tc>range[1]+5;
+}
+
+function solveAntoine(){
+  const out=document.getElementById("an-result");
+  try{
+    const cpd=document.getElementById("an-cpd").value;
+    const {range}=ANTOINE[cpd];
+    const mode=document.getElementById("an-mode").value;
+    const punit=document.getElementById("an-punit").value;
+    const val=parseFloat(document.getElementById("an-in").value);
+    let steps=[];
+    if(mode==="p"){
+      const T=val;
+      const pMmHg = antoinePmmHg(cpd,T);
+      const pOut = pMmHg/ANTOINE_TO_MMHG[punit];
+      if(antoineOutOfRange(cpd,T)) steps.push(`Warning: T=${T}C is outside the fitted range ${range[0]} to ${range[1]}C — extrapolating.`);
+      steps.push(`p* = 10^(A - B/(T+C)) = ${fmt(pMmHg,4)} mmHg = ${fmt(pOut,4)} ${punit}`);
+      out.innerHTML=`<div class="result"><b>p* = ${fmt(pOut,4)} ${punit}</b><div class="steps">${steps.join("\n")}</div></div>`;
+    } else {
+      const pMmHg = val*ANTOINE_TO_MMHG[punit];
+      const T = antoineTc(cpd,pMmHg);
+      if(antoineOutOfRange(cpd,T)) steps.push(`Warning: solved T=${fmt(T,2)}C is outside the fitted range ${range[0]} to ${range[1]}C.`);
+      steps.push(`p* = ${val} ${punit} = ${fmt(pMmHg,4)} mmHg`);
+      steps.push(`T = B/(A - log10 p*) - C = ${fmt(T,2)} °C`);
+      out.innerHTML=`<div class="result"><b>T = ${fmt(T,2)} &deg;C</b><div class="steps">${steps.join("\n")}</div></div>`;
+    }
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+/* -------------------------------------------------------------------------
+   Relative & molal saturation (humidity-style problems), built on the same
+   Antoine data as the tab above. Pure functions.
+   ------------------------------------------------------------------------- */
+
+// relative saturation sr = pA/pA* x 100%.  pA = actual partial pressure of A.
+function relativeSaturation(compound, Tc, pA_mmHg){
+  const pStar = antoinePmmHg(compound, Tc);
+  return { pStar, sr: 100*pA_mmHg/pStar };
+}
+// molal saturation sm = [yA/(1-yA)] / [yA*/(1-yA*)] x 100%, where yA*=pA*/Psystem.
+function molalSaturation(compound, Tc, Psystem_mmHg, yA){
+  const pStar = antoinePmmHg(compound, Tc);
+  const yAstar = pStar/Psystem_mmHg;
+  if(yAstar>=1) throw new Error("p* exceeds system pressure at this T — A cannot be at equilibrium as a partial component (pure A would boil).");
+  const sm = 100*(yA/(1-yA)) / (yAstar/(1-yAstar));
+  return { pStar, yAstar, sm };
+}
+
+/* =========================================================================
+   TAB: STEAM TABLES (B.7) & KOPP'S RULE (B.10)
+   ========================================================================= */
+document.getElementById("steamkopp").innerHTML = `
+<h2>Steam Tables &mdash; Table B.7 (Superheated Steam)</h2>
+<p class="note">Bilinear interpolation over FRB Table B.7 (pressure rows: ${STEAM_B7_P.join(", ")} bar;
+temperature columns: ${STEAM_B7_T[0]}&ndash;${STEAM_B7_T[STEAM_B7_T.length-1]} &deg;C). Reference state is the
+<b>triple point of water</b> &mdash; this is a <em>different</em> reference than the Table B.8 gas-enthalpy data used
+elsewhere in this toolkit (25&deg;C, gas). Never mix a Ĥ from this tool with a Ĥ from the Heat Exchanger tab's
+H2O(g)/molarH lookups in the same balance &mdash; only differences computed within Table B.7 itself are meaningful.</p>
+<div class="row3">
+  <div><label>Pressure (bar)</label><input id="st-P" type="number" value="1"></div>
+  <div><label>Solve for</label><select id="st-mode">
+    <option value="HatT">Ĥ, Û at a given T</option>
+    <option value="TatH">T at a given Ĥ</option>
+    <option value="meancp">Mean Cp between T1 and T2</option>
+  </select></div>
+  <div></div>
+</div>
+<div id="st-inputs"></div>
+<button class="solve" onclick="solveSteam()">Solve</button>
+<div id="st-result"></div>
+
+<h3 style="margin-top:26px;">Kopp's Rule &mdash; Table B.10 (Atomic Heat Capacities)</h3>
+<p class="note">Estimates Cp for a solid or liquid near 20&deg;C by summing per-atom contributions from Table B.10.
+Elements not explicitly listed in B.10 (C, H, B, Si, O, F, P, S) fall back to the table's "All Others" row.
+Works for any parseable formula, not just compounds already in this toolkit's Table B.1 (PROPS) data &mdash;
+e.g. Ca(OH)<sub>2</sub> is not in PROPS but Kopp's rule only needs its element counts.</p>
+<div class="row3">
+  <div><label>Chemical formula (e.g. Ca(OH)2, CH3COOH, (NH4)2SO4)</label><input id="kp-formula" type="text" value="Ca(OH)2"></div>
+  <div><label>Phase</label><select id="kp-phase"><option value="solid">Solid</option><option value="liquid">Liquid</option></select></div>
+  <div></div>
+</div>
+<button class="solve" onclick="solveKopp()">Estimate Cp</button>
+<div id="kp-result"></div>
+
+<h3 style="margin-top:26px;">Steady-Flow Steam Energy Balance <span class="pill">turbine / compressor / pipe</span></h3>
+<p class="note">General open-system balance on a single steam stream: <code>ΔĤ&#775; + ΔĖk&#775; + ΔĖp&#775; = Q&#775; + Ẇs</code>, using Table B.7 for Ĥ and V̂ at each end.
+Pipe diameters are optional &mdash; leave a diameter blank to neglect that end's kinetic energy (e.g. when no diameter is given in the problem). Leave exactly one of Q or Ws blank to solve for it.</p>
+<div class="row3">
+  <div><label>Mass flow rate</label><input id="sf-mdot" type="number" value="46"></div>
+  <div><label>unit</label><select id="sf-mdotunit"><option value="kg/s">kg/s</option><option value="kg/min">kg/min</option><option value="lbm/s">lbm/s</option><option value="lbm/min" selected>lbm/min</option></select></div>
+  <div><label>Elevation change (out &minus; in)</label><input id="sf-dz" type="number" value="0"></div>
+</div>
+<div class="row3">
+  <div></div><div></div>
+  <div><label>unit</label><select id="sf-dzunit"><option value="m">m</option><option value="ft">ft</option></select></div>
+</div>
+<h4 style="margin:14px 0 4px;">Inlet</h4>
+<div class="row3">
+  <div><label>P<sub>1</sub></label><input id="sf-P1" type="number" value="4350"></div>
+  <div><label>unit</label><select id="sf-P1unit"><option value="bar">bar</option><option value="psi" selected>psi</option><option value="atm">atm</option><option value="kPa">kPa</option></select></div>
+  <div><label>State</label><select id="sf-P1state" onchange="document.getElementById('sf-T1wrap').style.display=this.value==='T'?'':'none'">
+    <option value="T">superheated/subcooled (use T)</option>
+    <option value="satV">saturated vapor (use Tsat)</option>
+    <option value="satL">saturated liquid (use Tsat)</option>
+  </select></div>
+</div>
+<div class="row3">
+  <div id="sf-T1wrap"><label>T<sub>1</sub></label><input id="sf-T1" type="number" value="930"></div>
+  <div><label>unit</label><select id="sf-T1unit"><option value="C">&deg;C</option><option value="F" selected>&deg;F</option></select></div>
+  <div><label>Pipe 1 diameter (blank = neglect KE)</label>
+    <div style="display:flex; gap:6px;"><input id="sf-d1" type="number" placeholder="e.g. 4"><select id="sf-d1unit"><option value="in">in</option><option value="m">m</option></select></div>
+  </div>
+</div>
+<h4 style="margin:14px 0 4px;">Outlet</h4>
+<div class="row3">
+  <div><label>P<sub>2</sub></label><input id="sf-P2" type="number" value="14.5"></div>
+  <div><label>unit</label><select id="sf-P2unit"><option value="bar">bar</option><option value="psi" selected>psi</option><option value="atm">atm</option><option value="kPa">kPa</option></select></div>
+  <div><label>State</label><select id="sf-P2state" onchange="document.getElementById('sf-T2wrap').style.display=this.value==='T'?'':'none'">
+    <option value="T">superheated/subcooled (use T)</option>
+    <option value="satV">saturated vapor (use Tsat)</option>
+    <option value="satL">saturated liquid (use Tsat)</option>
+  </select></div>
+</div>
+<div class="row3">
+  <div id="sf-T2wrap"><label>T<sub>2</sub></label><input id="sf-T2" type="number" value="390"></div>
+  <div><label>unit</label><select id="sf-T2unit"><option value="C">&deg;C</option><option value="F" selected>&deg;F</option></select></div>
+  <div><label>Pipe 2 diameter (blank = neglect KE)</label>
+    <div style="display:flex; gap:6px;"><input id="sf-d2" type="number" placeholder="e.g. 10"><select id="sf-d2unit"><option value="in">in</option><option value="m">m</option></select></div>
+  </div>
+</div>
+<h4 style="margin:14px 0 4px;">Energy terms</h4>
+<div class="row3">
+  <div><label>Heat Q (blank = solve for it)</label><input id="sf-Q" type="number" value="0"></div>
+  <div><label>Shaft work Ws (blank = solve for it)</label><input id="sf-Ws" type="number" placeholder="unknown"></div>
+  <div><label>unit (for Q, Ws, and the answer)</label><select id="sf-Wunit"><option value="kW">kW</option><option value="hp">hp</option><option value="BTU/min">BTU/min</option><option value="BTU/hr">BTU/hr</option></select></div>
+</div>
+<button class="solve" onclick="solveSteamFlow()">Solve</button>
+<div id="sf-result"></div>
+`;
+
+function renderSteamInputs(){
+  const mode = document.getElementById("st-mode").value;
+  const el = document.getElementById("st-inputs");
+  if(mode==="HatT"){
+    el.innerHTML = `<div class="row"><div><label>T (&deg;C)</label><input id="st-T" type="number" value="200"></div><div></div></div>`;
+  } else if(mode==="TatH"){
+    el.innerHTML = `<div class="row"><div><label>Target Ĥ (kJ/kg)</label><input id="st-H" type="number" value="2800"></div><div></div></div>`;
+  } else {
+    el.innerHTML = `<div class="row"><div><label>T1 (&deg;C)</label><input id="st-T1" type="number" value="150"></div><div><label>T2 (&deg;C)</label><input id="st-T2" type="number" value="200"></div></div>`;
+  }
+}
+(function(){
+  document.getElementById("st-mode").onchange = renderSteamInputs;
+  renderSteamInputs();
+})();
+
+function solveSteam(){
+  const out=document.getElementById("st-result");
+  try{
+    const P = parseFloat(document.getElementById("st-P").value);
+    const mode = document.getElementById("st-mode").value;
+    let steps=[];
+    if(mode==="HatT"){
+      const T = parseFloat(document.getElementById("st-T").value);
+      const r = steamProps(P,T);
+      if(r.extrapolatedT) steps.push(`Warning: T=${T}C is outside Table B.7's tabulated range (${STEAM_B7_T[0]}-${STEAM_B7_T[STEAM_B7_T.length-1]}C) — extrapolating.`);
+      steps.push(`Bilinear interpolation on Table B.7 at P=${P} bar, T=${T} C`);
+      if(r.Tsat!==null) steps.push(`(P=${P} bar is a tabulated row; Tsat=${fmt(r.Tsat,1)} C)`);
+      steps.push(`Ĥ = ${fmt(r.H,2)} kJ/kg`);
+      steps.push(`Û = ${fmt(r.U,2)} kJ/kg`);
+      steps.push(`V̂ = ${fmt(r.V,6)} m³/kg`);
+      out.innerHTML=`<div class="result"><b>Ĥ = ${fmt(r.H,2)} kJ/kg, Û = ${fmt(r.U,2)} kJ/kg, V̂ = ${fmt(r.V,6)} m³/kg</b><div class="steps">${steps.join("\n")}</div></div>`;
+    } else if(mode==="TatH"){
+      const Htarget = parseFloat(document.getElementById("st-H").value);
+      const T = steamTempFromEnthalpy(P, Htarget);
+      const check = steamProps(P,T);
+      steps.push(`Bisecting Ĥ(P=${P} bar, T) = ${Htarget} kJ/kg over Table B.7's T range`);
+      steps.push(`=> T = ${fmt(T,2)} C  (check: Ĥ = ${fmt(check.H,2)} kJ/kg)`);
+      out.innerHTML=`<div class="result"><b>T = ${fmt(T,2)} &deg;C</b><div class="steps">${steps.join("\n")}</div></div>`;
+    } else {
+      const T1 = parseFloat(document.getElementById("st-T1").value);
+      const T2 = parseFloat(document.getElementById("st-T2").value);
+      const cp = steamMeanCp(P,T1,T2);
+      const h1=steamProps(P,T1), h2=steamProps(P,T2);
+      steps.push(`Ĥ(${T1}C) = ${fmt(h1.H,2)} kJ/kg,  Ĥ(${T2}C) = ${fmt(h2.H,2)} kJ/kg`);
+      steps.push(`Mean Cp = [Ĥ(T2)-Ĥ(T1)] / (T2-T1) = [${fmt(h2.H,2)} - ${fmt(h1.H,2)}] / (${T2} - ${T1}) = ${fmt(cp,4)} kJ/(kg·C)`);
+      out.innerHTML=`<div class="result"><b>Mean Cp = ${fmt(cp,4)} kJ/(kg·°C)</b><div class="steps">${steps.join("\n")}</div></div>`;
+    }
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+function solveKopp(){
+  const out=document.getElementById("kp-result");
+  try{
+    const formula = document.getElementById("kp-formula").value.trim();
+    const phase = document.getElementById("kp-phase").value;
+    const r = koppRuleCp(formula, phase);
+    let steps=[];
+    steps.push(`Formula: ${formula}  (MW = ${fmt(r.mw,3)} g/mol)`);
+    steps.push(`Kopp's rule (${phase}): Cp = Σ nᵢ·Cpa,ᵢ  [Table B.10, J/(g-atom·C)]`);
+    r.breakdown.forEach(b=>{
+      steps.push(`  ${b.count} × ${b.element} (${fmt(b.Cpa_J_per_gatom_C,1)} J/(g-atom·C)${b.usedDefault?", \"All Others\" row":""}) = ${fmt(b.count*b.Cpa_J_per_gatom_C,1)} J/(mol·C)`);
+    });
+    steps.push(`Cp = ${fmt(r.Cp_J_per_mol_C,1)} J/(mol·C) = ${fmt(r.Cp_kJ_per_mol_C,4)} kJ/(mol·C) = ${fmt(r.Cp_kJ_per_kg_C,4)} kJ/(kg·C)`);
+    out.innerHTML=`<div class="result"><b>Cp ≈ ${fmt(r.Cp_kJ_per_mol_C,4)} kJ/(mol·°C)  (${fmt(r.Cp_kJ_per_kg_C,4)} kJ/(kg·°C))</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+function flowToKgPerS(value, unit){ // unit like "kg/s","kg/min","lbm/s","lbm/min","L/min","gal/min"
+  const [numUnit,timeUnit] = unit.split("/");
+  const perSec = timeUnit==="s" ? value : value/60;
+  if(numUnit in MASS_TO_KG) return convert(perSec, numUnit, "kg", MASS_TO_KG);
+  if(numUnit in VOLUME_TO_M3) throw new Error("Volumetric flow needs a density to convert to mass flow — use densityToKgM3() first.");
+  throw new Error(`Unknown flow unit "${unit}"`);
+}
+function kWToUnit(kW, unit){ return convert(kW*1000, "W", unit, POWER_TO_W); }
+function unitToKW(v, unit){ return convert(v, unit, "W", POWER_TO_W)/1000; }
+
+// "kg/m3", "g/L" (numerically identical to kg/m3), or "lbm/ft3" -> kg/m3
+function densityToKgM3(value, unit){
+  if(unit==="g/L") return value; // 1 g/L = 1 kg/m3 exactly
+  const [massUnit,volUnit] = unit.split("/");
+  return value*MASS_TO_KG[massUnit]/VOLUME_TO_M3[volUnit];
+}
+// specific-energy unit conversion, e.g. "BTU/lbm" <-> "kJ/kg". unit format "energyUnit/massUnit".
+function convertSpecificEnergy(value, fromUnit, toUnit){
+  const [fe,fm] = fromUnit.split("/");
+  const [te,tm] = toUnit.split("/");
+  const J_per_from = convert(1, fe, "J", ENERGY_TO_J)/convert(1, fm, "kg", MASS_TO_KG);
+  const J_per_to   = convert(1, te, "J", ENERGY_TO_J)/convert(1, tm, "kg", MASS_TO_KG);
+  return value*J_per_from/J_per_to;
+}
+
+function solveSteamFlow(){
+  const out=document.getElementById("sf-result");
+  try{
+    const g=id=>document.getElementById(id);
+    const mdot = flowToKgPerS(parseFloat(g("sf-mdot").value), g("sf-mdotunit").value);
+    const P1 = convert(parseFloat(g("sf-P1").value), g("sf-P1unit").value, "bar", PRESSURE_TO_BAR);
+    const state1 = g("sf-P1state").value;
+    const T1 = state1==="T" ? toCelsius(parseFloat(g("sf-T1").value), g("sf-T1unit").value) : null;
+    const P2 = convert(parseFloat(g("sf-P2").value), g("sf-P2unit").value, "bar", PRESSURE_TO_BAR);
+    const state2 = g("sf-P2state").value;
+    const T2 = state2==="T" ? toCelsius(parseFloat(g("sf-T2").value), g("sf-T2unit").value) : null;
+    const d1str=g("sf-d1").value, d2str=g("sf-d2").value;
+    const d1 = d1str==="" ? null : convert(parseFloat(d1str), g("sf-d1unit").value, "m", LENGTH_TO_M);
+    const d2 = d2str==="" ? null : convert(parseFloat(d2str), g("sf-d2unit").value, "m", LENGTH_TO_M);
+    const dz = convert(parseFloat(g("sf-dz").value||0), g("sf-dzunit").value, "m", LENGTH_TO_M);
+    const Qstr=g("sf-Q").value, Wsstr=g("sf-Ws").value;
+    if((Qstr==="") === (Wsstr==="")) throw new Error("Leave exactly one of Q or Ws blank — the tool solves for it.");
+    const Wunit = g("sf-Wunit").value;
+    const Q_kW = Qstr==="" ? null : unitToKW(parseFloat(Qstr), Wunit);
+    const Ws_kW = Wsstr==="" ? null : unitToKW(parseFloat(Wsstr), Wunit);
+
+    const s1 = resolveSteamState(P1, T1, state1);
+    const s2 = resolveSteamState(P2, T2, state2);
+    const r = steamSteadyFlowEnergyBalance({mdot_kg_s:mdot, s1, s2, d1_m:d1, d2_m:d2, dz_m:dz, Q_kW, Ws_kW});
+
+    let steps=[];
+    steps.push(`ṁ = ${fmt(mdot,5)} kg/s`);
+    const state1Desc = state1==="T" ? `T1=${fmt(T1,2)} C` : `${state1==="satV"?"saturated vapor":"saturated liquid"}, Tsat=${fmt(s1.Tsat,2)} C${s1.interpolatedSat?" (interpolated between adjacent Table B.7 rows — no exact B.6 entry at this P)":""}`;
+    const state2Desc = state2==="T" ? `T2=${fmt(T2,2)} C` : `${state2==="satV"?"saturated vapor":"saturated liquid"}, Tsat=${fmt(s2.Tsat,2)} C${s2.interpolatedSat?" (interpolated between adjacent Table B.7 rows — no exact B.6 entry at this P)":""}`;
+    steps.push(`Inlet:  P1=${fmt(P1,4)} bar, ${state1Desc}  =>  Ĥ1=${fmt(s1.H,2)} kJ/kg, V̂1=${fmt(s1.V,6)} m³/kg${d1?`, v1=${fmt(r.v1,3)} m/s`:" (no diameter given, v1 neglected)"}`);
+    steps.push(`Outlet: P2=${fmt(P2,4)} bar, ${state2Desc}  =>  Ĥ2=${fmt(s2.H,2)} kJ/kg, V̂2=${fmt(s2.V,6)} m³/kg${d2?`, v2=${fmt(r.v2,3)} m/s`:" (no diameter given, v2 neglected)"}`);
+    if(s1.extrapolatedT || s2.extrapolatedT) steps.push(`Warning: a given T is outside Table B.7's tabulated range — extrapolating.`);
+    steps.push(``);
+    steps.push(`Ḣ = ṁ(Ĥ2-Ĥ1) = ${fmt(mdot,5)} x (${fmt(s2.H,2)} - ${fmt(s1.H,2)}) = ${fmt(r.dH_dot,4)} kW`);
+    steps.push(`Ėk = ṁ(v2²-v1²)/2 = ${fmt(r.dEk_dot,4)} kW`);
+    steps.push(`Ėp = ṁ g Δz = ${fmt(r.dEp_dot,4)} kW  (Δz=${fmt(dz,3)} m)`);
+    steps.push(`Energy balance: Ḣ + Ėk + Ėp = Q + Ws`);
+    const solvedLabel = Wsstr==="" ? "Ws" : "Q";
+    const solvedKW = Wsstr==="" ? r.Ws : r.Q;
+    steps.push(`=> ${solvedLabel} = ${fmt(r.dH_dot+r.dEk_dot+r.dEp_dot,4)} - ${solvedLabel==="Ws"?fmt(Q_kW,4):fmt(Ws_kW,4)} = ${fmt(solvedKW,4)} kW = ${fmt(kWToUnit(solvedKW,Wunit),4)} ${Wunit}`);
+    out.innerHTML=`<div class="result"><b>${solvedLabel} = ${fmt(kWToUnit(solvedKW,Wunit),4)} ${Wunit}  (${fmt(solvedKW,4)} kW)</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+/* =========================================================================
+   TAB: GENERAL ENERGY BALANCES, MECHANICAL BALANCE & IDEAL-SOLUTION MIXING
+   ========================================================================= */
+document.getElementById("mech").innerHTML = `
+<h2>Closed-System Energy Balance <span class="pill">non-flow, FRB 7.3</span></h2>
+<p class="note"><code>ΔU + ΔEk + ΔEp = Q &minus; W</code>. <b>W = work done BY the system on the surroundings</b> (opposite sign
+convention from Ws below!). ΔU/ΔEk/ΔEp are values you already have &mdash; from a Cp/Cv integration, steam-table Û, or given
+directly &mdash; this tool doesn't look anything up. Leave exactly one of ΔU, Q, W blank to solve for it.</p>
+<div class="row3">
+  <div><label>ΔU</label><input id="ce-dU" type="number" placeholder="blank = solve"></div>
+  <div><label>ΔEk (0 if none)</label><input id="ce-dEk" type="number" value="0"></div>
+  <div><label>ΔEp (0 if none)</label><input id="ce-dEp" type="number" value="0"></div>
+</div>
+<div class="row3">
+  <div><label>Q (heat added TO the system)</label><input id="ce-Q" type="number" placeholder="blank = solve"></div>
+  <div><label>W (work done BY the system)</label><input id="ce-W" type="number" placeholder="blank = solve"></div>
+  <div><label>unit (all terms, same unit)</label><select id="ce-unit"><option value="kJ">kJ</option><option value="J">J</option><option value="BTU">BTU</option><option value="cal">cal</option><option value="ftlbf">ft&middot;lbf</option><option value="kWh">kWh</option></select></div>
+</div>
+<button class="solve" onclick="solveClosedSystem()">Solve</button>
+<div id="ce-result"></div>
+
+<h2 style="margin-top:30px;">Open-System Energy Balance <span class="pill">steady flow, FRB 7.4</span></h2>
+<p class="note"><code>ΔH + ΔEk + ΔEp = Q + Ws</code>. <b>Ws = work done ON the system</b> (opposite sign convention from W above!).
+This is the same equation the Combustion, Heat Exchanger, and Steady-Flow Steam tools all specialize &mdash; use this bare
+version when you already have ΔH from somewhere else (Table B.8, a Cp integration, given directly) and just need the
+balance solved. Leave exactly one of ΔH, Q, Ws blank to solve for it.</p>
+<div class="row3">
+  <div><label>ΔH</label><input id="oe-dH" type="number" placeholder="blank = solve"></div>
+  <div><label>ΔEk (0 if none)</label><input id="oe-dEk" type="number" value="0"></div>
+  <div><label>ΔEp (0 if none)</label><input id="oe-dEp" type="number" value="0"></div>
+</div>
+<div class="row3">
+  <div><label>Q (heat added to the system)</label><input id="oe-Q" type="number" value="0"></div>
+  <div><label>Ws (work done ON the system)</label><input id="oe-Ws" type="number" placeholder="blank = solve"></div>
+  <div><label>unit (all terms, same unit)</label><select id="oe-unit"><option value="kJ">kJ</option><option value="J">J</option><option value="BTU">BTU</option><option value="cal">cal</option><option value="ftlbf">ft&middot;lbf</option><option value="kWh">kWh</option></select></div>
+</div>
+<button class="solve" onclick="solveOpenSystem()">Solve</button>
+<div id="oe-result"></div>
+
+<h2 style="margin-top:30px;">Mechanical Energy Balance <span class="pill">incompressible liquid, FRB 7.7</span></h2>
+<p class="note"><code>ΔP/ρ + Δv&sup2;/2 + gΔz + F̂ = Ws/ṁ</code>. Density and friction are values <em>you</em> supply, not a table
+lookup &mdash; this works for water, glycerol solutions, or any other incompressible liquid. Give a mass or volumetric flow
+rate to also get total power, not just specific work.</p>
+<div class="row3">
+  <div><label>Density ρ</label><input id="me-rho" type="number" value="1000"></div>
+  <div><label>unit</label><select id="me-rhounit"><option value="kg/m3">kg/m&sup3;</option><option value="g/L">g/L</option><option value="lbm/ft3">lbm/ft&sup3;</option></select></div>
+  <div><label>ΔP = P<sub>out</sub> &minus; P<sub>in</sub> (0 if both open to atm)</label><input id="me-dP" type="number" value="0"></div>
+</div>
+<div class="row3">
+  <div><label>unit</label><select id="me-Punit"><option value="Pa">Pa</option><option value="kPa">kPa</option><option value="bar">bar</option><option value="atm">atm</option><option value="psi">psi</option></select></div>
+  <div><label>v<sub>in</sub></label><input id="me-v1" type="number" value="280"></div>
+  <div><label>v<sub>out</sub></label><input id="me-v2" type="number" value="105"></div>
+</div>
+<div class="row3">
+  <div><label>velocity unit</label><select id="me-vunit"><option value="ft">ft/s</option><option value="m">m/s</option></select></div>
+  <div><label>Δz = z<sub>out</sub> &minus; z<sub>in</sub></label><input id="me-dz" type="number" value="-26"></div>
+  <div><label>elevation unit</label><select id="me-zunit"><option value="ft">ft</option><option value="m">m</option></select></div>
+</div>
+<div class="row3">
+  <div><label>Friction F̂ (&ge;0; 0 if frictionless/not given)</label><input id="me-F" type="number" value="0"></div>
+  <div><label>F̂ unit</label><select id="me-Funit"><option value="J/kg">J/kg</option><option value="kJ/kg">kJ/kg</option><option value="ftlbf/lbm">ft&middot;lbf/lbm</option><option value="BTU/lbm">BTU/lbm</option></select></div>
+  <div><label>Answer (Ws) unit</label><select id="me-Wsunit"><option value="BTU/lbm">BTU/lbm</option><option value="J/kg">J/kg</option><option value="kJ/kg">kJ/kg</option><option value="ftlbf/lbm">ft&middot;lbf/lbm</option><option value="cal/g">cal/g</option></select></div>
+</div>
+<div class="row3">
+  <div><label>Mass or volumetric flow (optional, for total power)</label><input id="me-flow" type="number" placeholder="e.g. 100"></div>
+  <div><label>flow unit</label><select id="me-flowunit"><option value="kg/s">kg/s</option><option value="lbm/s">lbm/s</option><option value="lbm/min">lbm/min</option><option value="L/min">L/min</option><option value="gal/min">gal/min</option></select></div>
+  <div><label>power unit</label><select id="me-Wunit"><option value="kW">kW</option><option value="hp">hp</option><option value="BTU/min">BTU/min</option></select></div>
+</div>
+<button class="solve" onclick="solveMechEnergy()">Solve for Ws</button>
+<div id="me-result"></div>
+
+<h2 style="margin-top:30px;">Ideal-Solution Mixing &amp; Dilution</h2>
+<p class="note">For miscible liquids assumed to mix with no volume change: <code>1/ρ<sub>mix</sub> = w<sub>A</sub>/ρ<sub>A</sub> + w<sub>B</sub>/ρ<sub>B</sub></code>.
+Dilutes/concentrates an initial solution by blending in a second stream of known composition to hit a target mass fraction.
+Component densities are inputs, not a lookup &mdash; use this for glycerol, ethanol, or anything else not in the Table B.1 (PROPS) data.</p>
+<div class="row3">
+  <div><label>Solute density ρ<sub>solute</sub></label><input id="dl-rhoA" type="number" value="1.26"></div>
+  <div><label>Solvent density ρ<sub>solvent</sub></label><input id="dl-rhoB" type="number" value="1.00"></div>
+  <div><label>density unit</label><select id="dl-rhounit"><option value="gmL">g/mL (=kg/L)</option><option value="kgm3">kg/m&sup3;</option></select></div>
+</div>
+<div class="row3">
+  <div><label>Initial solution mass or volume</label><input id="dl-amt1" type="number" value="1000"></div>
+  <div><label>amount is a...</label><select id="dl-amt1kind"><option value="vol">volume</option><option value="mass">mass</option></select></div>
+  <div><label>amount unit</label><select id="dl-amt1unit"><option value="L">L</option><option value="mL">mL</option><option value="m3">m&sup3;</option><option value="kg">kg</option><option value="g">g</option></select></div>
+</div>
+<div class="row3">
+  <div><label>Initial mass fraction x<sub>1</sub> (wt%)</label><input id="dl-x1" type="number" value="95"></div>
+  <div><label>Added stream mass fraction x<sub>2</sub> (wt%)</label><input id="dl-x2" type="number" value="35"></div>
+  <div><label>Target mass fraction x<sub>3</sub> (wt%)</label><input id="dl-x3" type="number" value="60"></div>
+</div>
+<button class="solve" onclick="solveDilution()">Solve Blend</button>
+<div id="dl-result"></div>
+`;
+
+function solveClosedSystem(){
+  const out=document.getElementById("ce-result");
+  try{
+    const g=id=>document.getElementById(id);
+    const unit = g("ce-unit").value;
+    const dUstr=g("ce-dU").value, Qstr=g("ce-Q").value, Wstr=g("ce-W").value;
+    const blanks=[dUstr,Qstr,Wstr].filter(s=>s==="").length;
+    if(blanks!==1) throw new Error("Leave exactly one of ΔU, Q, W blank — the tool solves for it.");
+    const r = closedSystemBalance({
+      dU: dUstr===""?null:parseFloat(dUstr),
+      dEk: parseFloat(g("ce-dEk").value||0),
+      dEp: parseFloat(g("ce-dEp").value||0),
+      Q: Qstr===""?null:parseFloat(Qstr),
+      W: Wstr===""?null:parseFloat(Wstr)
+    });
+    const missing = dUstr==="" ? "ΔU" : (Qstr==="" ? "Q" : "W");
+    const missingVal = dUstr==="" ? r.dU : (Qstr==="" ? r.Q : r.W);
+    let steps=[];
+    steps.push(`ΔU + ΔEk + ΔEp = Q − W`);
+    steps.push(`${fmt(r.dU,4)} + ${fmt(r.dEk,4)} + ${fmt(r.dEp,4)} = ${fmt(r.Q,4)} − (${fmt(r.W,4)})`);
+    steps.push(`=> ${missing} = ${fmt(missingVal,4)} ${unit}`);
+    out.innerHTML=`<div class="result"><b>${missing} = ${fmt(missingVal,4)} ${unit}</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+function solveOpenSystem(){
+  const out=document.getElementById("oe-result");
+  try{
+    const g=id=>document.getElementById(id);
+    const unit = g("oe-unit").value;
+    const dHstr=g("oe-dH").value, Qstr=g("oe-Q").value, Wsstr=g("oe-Ws").value;
+    const blanks=[dHstr,Qstr,Wsstr].filter(s=>s==="").length;
+    if(blanks!==1) throw new Error("Leave exactly one of ΔH, Q, Ws blank — the tool solves for it.");
+    const r = openSystemBalance({
+      dH: dHstr===""?null:parseFloat(dHstr),
+      dEk: parseFloat(g("oe-dEk").value||0),
+      dEp: parseFloat(g("oe-dEp").value||0),
+      Q: Qstr===""?null:parseFloat(Qstr),
+      Ws: Wsstr===""?null:parseFloat(Wsstr)
+    });
+    const missing = dHstr==="" ? "ΔH" : (Qstr==="" ? "Q" : "Ws");
+    const missingVal = dHstr==="" ? r.dH : (Qstr==="" ? r.Q : r.Ws);
+    let steps=[];
+    steps.push(`ΔH + ΔEk + ΔEp = Q + Ws`);
+    steps.push(`${fmt(r.dH,4)} + ${fmt(r.dEk,4)} + ${fmt(r.dEp,4)} = ${fmt(r.Q,4)} + ${fmt(r.Ws,4)}`);
+    steps.push(`=> ${missing} = ${fmt(missingVal,4)} ${unit}`);
+    out.innerHTML=`<div class="result"><b>${missing} = ${fmt(missingVal,4)} ${unit}</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+function solveMechEnergy(){
+  const out=document.getElementById("me-result");
+  try{
+    const g=id=>document.getElementById(id);
+    const rho = densityToKgM3(parseFloat(g("me-rho").value), g("me-rhounit").value);
+    const dP_Pa = convert(parseFloat(g("me-dP").value), g("me-Punit").value, "Pa", PRESSURE_TO_BAR);
+    const vunit = g("me-vunit").value==="ft" ? "ft" : "m";
+    const v1 = convert(parseFloat(g("me-v1").value), vunit, "m", LENGTH_TO_M);
+    const v2 = convert(parseFloat(g("me-v2").value), vunit, "m", LENGTH_TO_M);
+    const zunit = g("me-zunit").value;
+    const dz = convert(parseFloat(g("me-dz").value), zunit, "m", LENGTH_TO_M);
+    const Funit = g("me-Funit").value;
+    const F_Jkg = convertSpecificEnergy(parseFloat(g("me-F").value), Funit, "J/kg");
+
+    const r = mechEnergyBalance({dP_Pa, rho_kgm3:rho, v1_ms:v1, v2_ms:v2, dz_m:dz, F_Jkg});
+    const WsUnit = g("me-Wsunit").value;
+    const WsOut = convertSpecificEnergy(r.WsPerMass_Jkg, "J/kg", WsUnit);
+
+    let steps=[];
+    steps.push(`ρ = ${fmt(rho,3)} kg/m³`);
+    steps.push(`ΔP/ρ = ${fmt(dP_Pa,2)} Pa / ${fmt(rho,3)} kg/m³ = ${fmt(r.termP,4)} J/kg`);
+    steps.push(`Δv²/2 = [(${fmt(v2,4)})² - (${fmt(v1,4)})²]/2 = ${fmt(r.termEk,4)} J/kg`);
+    steps.push(`gΔz = 9.81 x ${fmt(dz,4)} = ${fmt(r.termEp,4)} J/kg`);
+    steps.push(`F̂ = ${fmt(r.F,4)} J/kg`);
+    steps.push(`Ws/ṁ = ${fmt(r.termP,4)} + ${fmt(r.termEk,4)} + ${fmt(r.termEp,4)} + ${fmt(r.F,4)} = ${fmt(r.WsPerMass_Jkg,4)} J/kg = ${fmt(WsOut,4)} ${WsUnit}`);
+    let resultLine = `Ws/ṁ = ${fmt(WsOut,4)} ${WsUnit}`;
+
+    const flowStr = g("me-flow").value;
+    if(flowStr!==""){
+      const flowUnit = g("me-flowunit").value;
+      let mdot;
+      if(flowUnit==="L/min"||flowUnit==="gal/min"){
+        const volPerMin_m3 = convert(parseFloat(flowStr), flowUnit.split("/")[0], "m3", VOLUME_TO_M3);
+        mdot = volPerMin_m3*rho/60; // kg/s
+      } else {
+        mdot = flowToKgPerS(parseFloat(flowStr), flowUnit);
+      }
+      const powerKW = mdot*r.WsPerMass_Jkg/1000; // kg/s * J/kg = W; /1000 = kW
+      const Wunit = g("me-Wunit").value;
+      const powerOut = kWToUnit(powerKW, Wunit);
+      steps.push(``);
+      steps.push(`ṁ = ${fmt(mdot,5)} kg/s`);
+      steps.push(`Power = ṁ x (Ws/ṁ) = ${fmt(mdot,5)} kg/s x ${fmt(r.WsPerMass_Jkg,4)} J/kg = ${fmt(powerKW,4)} kW = ${fmt(powerOut,4)} ${Wunit}`);
+      resultLine += `,  Power = ${fmt(powerOut,4)} ${Wunit}`;
+    }
+    out.innerHTML=`<div class="result"><b>${resultLine}</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+const DENSITY_TO_KGM3 = {gmL:1000, kgm3:1};
+
+function solveDilution(){
+  const out=document.getElementById("dl-result");
+  try{
+    const g=id=>document.getElementById(id);
+    const rhoUnit = g("dl-rhounit").value;
+    const rhoA = parseFloat(g("dl-rhoA").value)*DENSITY_TO_KGM3[rhoUnit]; // kg/m3
+    const rhoB = parseFloat(g("dl-rhoB").value)*DENSITY_TO_KGM3[rhoUnit]; // kg/m3
+
+    const x1 = parseFloat(g("dl-x1").value)/100, x2 = parseFloat(g("dl-x2").value)/100, x3 = parseFloat(g("dl-x3").value)/100;
+    const amt1 = parseFloat(g("dl-amt1").value);
+    const amt1kind = g("dl-amt1kind").value;
+    const amt1unit = g("dl-amt1unit").value;
+
+    const rho1 = idealMixDensity([{wt:x1,rho:rhoA},{wt:1-x1,rho:rhoB}]); // kg/m3
+    const rho2 = idealMixDensity([{wt:x2,rho:rhoA},{wt:1-x2,rho:rhoB}]);
+    const rho3 = idealMixDensity([{wt:x3,rho:rhoA},{wt:1-x3,rho:rhoB}]);
+
+    let m1_kg;
+    if(amt1kind==="mass"){
+      m1_kg = convert(amt1, amt1unit, "kg", MASS_TO_KG);
+    } else {
+      const vol_m3 = convert(amt1, amt1unit, "m3", VOLUME_TO_M3);
+      m1_kg = vol_m3*rho1;
+    }
+
+    const {m2, mTotal} = blendToTarget({m1:m1_kg, x1, x2, x3});
+    const finalVol_L = (mTotal/rho3)*1000;
+    const addedVol_L = (m2/rho2)*1000;
+
+    let steps=[];
+    steps.push(`ρ(x1=${fmt(x1*100,2)}%) = 1/[x1/ρA + (1-x1)/ρB] = ${fmt(rho1,2)} kg/m³`);
+    steps.push(`ρ(x2=${fmt(x2*100,2)}%) = ${fmt(rho2,2)} kg/m³`);
+    steps.push(`ρ(x3=${fmt(x3*100,2)}%) = ${fmt(rho3,2)} kg/m³`);
+    steps.push(`m1 = ${fmt(m1_kg,4)} kg (initial ${amt1kind})`);
+    steps.push(`Solute balance: m1·x1 + m2·x2 = (m1+m2)·x3  =>  m2 = m1(x3-x1)/(x2-x3)`);
+    steps.push(`m2 = ${fmt(m1_kg,4)} x (${fmt(x3,4)}-${fmt(x1,4)})/(${fmt(x2,4)}-${fmt(x3,4)}) = ${fmt(m2,4)} kg  (= ${fmt(addedVol_L,4)} L of the ${fmt(x2*100,1)}% stream)`);
+    steps.push(`Total mass = m1+m2 = ${fmt(mTotal,4)} kg`);
+    steps.push(`Final volume = mTotal/ρ3 = ${fmt(mTotal,4)}/${fmt(rho3,2)} = ${fmt(finalVol_L,3)} L`);
+    out.innerHTML=`<div class="result"><b>Added mass = ${fmt(m2,4)} kg (${fmt(addedVol_L,4)} L),  Final volume = ${fmt(finalVol_L,3)} L</b><div class="steps">${steps.join("\n")}</div></div>`;
+  }catch(e){ out.innerHTML=`<div class="result err">${e.message}</div>`; }
+}
+
+/* =========================================================================
+   TAB 5: REFERENCE DATA BROWSER
+   ========================================================================= */
+document.getElementById("reference").innerHTML = `
+<h2>Reference Data Browser</h2>
+<p class="note">Curated subset of FRB Appendix B, Tables B.1 (physical properties), B.2 (heat capacities), B.7 (superheated steam), B.8 (gas enthalpy table), and B.10 (Kopp's rule atomic heat capacities). Not the complete tables — see your textbook appendix for anything not listed here.</p>
+<h3>Table B.1 &mdash; Physical properties</h3>
+<div style="overflow-x:auto;"><table id="ref-props"></table></div>
+<h3 style="margin-top:22px;">Table B.2 &mdash; Heat capacity polynomials <span class="pill">Cp = a + bT + cT&sup2; + dT&sup3;</span></h3>
+<div style="overflow-x:auto;"><table id="ref-cp"></table></div>
+<h3 style="margin-top:22px;">Table B.7 &mdash; Superheated steam Ĥ (kJ/kg), ref. triple point of water</h3>
+<div style="overflow-x:auto;"><table id="ref-steam"></table></div>
+<h3 style="margin-top:22px;">Table B.8 &mdash; Specific enthalpies of gases (kJ/mol, ref. 25&deg;C)</h3>
+<div style="overflow-x:auto;"><table id="ref-h8"></table></div>
+<h3 style="margin-top:22px;">Table B.10 &mdash; Atomic heat capacities for Kopp's rule <span class="pill">J/(g-atom&middot;&deg;C)</span></h3>
+<div style="overflow-x:auto;"><table id="ref-kopp"></table></div>
+`;
+(function(){
+  const t=document.getElementById("ref-props");
+  let html = "<tr><th>Compound</th><th>Formula</th><th>MW</th><th>Tm(C)</th><th>Tb(C)</th><th>dHv(kJ/mol)</th><th>dHf°(kJ/mol)</th><th>dHc°(kJ/mol)</th></tr>";
+  Object.keys(PROPS).forEach(k=>{
+    const p=PROPS[k];
+    html+=`<tr><td>${k}</td><td>${p.formula}</td><td>${fmt(p.mw,2)}</td><td>${fmt(p.tm,1)}</td><td>${fmt(p.tb,1)}</td><td>${fmt(p.dHv,2)}</td><td>${fmt(p.dHf,2)}</td><td>${fmt(p.dHc,1)}</td></tr>`;
+  });
+  t.innerHTML=html;
+
+  const t2=document.getElementById("ref-cp");
+  let html2 = "<tr><th>Compound</th><th>Phase</th><th>T unit</th><th>a</th><th>b</th><th>c</th><th>d</th><th>Range</th></tr>";
+  Object.keys(CP).forEach(k=>{
+    const c=CP[k];
+    html2+=`<tr><td>${k}</td><td>${c.phase}</td><td>${c.tempUnit}</td><td>${c.a}</td><td>${c.b.toExponential(3)}</td><td>${c.c.toExponential(3)}</td><td>${c.d.toExponential(3)}</td><td>${c.range[0]}&ndash;${c.range[1]}</td></tr>`;
+  });
+  t2.innerHTML=html2;
+
+  const t3=document.getElementById("ref-h8");
+  let html3 = "<tr><th>T (C)</th>"+H8_SPECIES.map(s=>`<th>${s}</th>`).join("")+"</tr>";
+  H8_T.forEach((T,i)=>{
+    html3+=`<tr><td>${T}</td>`+H8_SPECIES.map(s=>`<td>${H8[s][i]}</td>`).join("")+`</tr>`;
+  });
+  t3.innerHTML=html3;
+
+  const t4=document.getElementById("ref-steam");
+  let html4 = "<tr><th>P(bar)</th><th>Tsat(C)</th>"+STEAM_B7_T.map(T=>`<th>${T}</th>`).join("")+"</tr>";
+  STEAM_B7_P.forEach(P=>{
+    const row=STEAM_B7[String(P)];
+    html4+=`<tr><td>${P}</td><td>${fmt(row.Tsat,1)}</td>`+row.H.map(h=>`<td>${fmt(h,1)}</td>`).join("")+`</tr>`;
+  });
+  t4.innerHTML=html4;
+
+  const t5=document.getElementById("ref-kopp");
+  let html5 = "<tr><th>Element</th><th>Cpa, solid</th><th>Cpa, liquid</th></tr>";
+  Object.keys(KOPP_B10).forEach(el=>{
+    if(el==="DEFAULT") return;
+    html5+=`<tr><td>${el}</td><td>${KOPP_B10[el].solid}</td><td>${KOPP_B10[el].liquid}</td></tr>`;
+  });
+  html5+=`<tr><td>All Others</td><td>${KOPP_B10.DEFAULT.solid}</td><td>${KOPP_B10.DEFAULT.liquid}</td></tr>`;
+  t5.innerHTML=html5;
+})();
+
+/* run one example solve on load so the page isn't empty */
+window.addEventListener("DOMContentLoaded", ()=>{ try{ solveCombustion(); }catch(e){} });
+</script>
+</body>
+</html>
