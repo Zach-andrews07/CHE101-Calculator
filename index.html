@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head> <link rel="manifest" href="/manifest.json">
+<head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CHE 101 Calculator — Mass &amp; Energy Balance Solver</title>
@@ -47,6 +47,7 @@
   .pill{display:inline-block; background:var(--bg-alt); border:1px solid var(--border); border-radius:12px; padding:2px 9px; font-size:.75rem; margin-left:6px;}
   code{background:var(--bg-alt); padding:1px 5px; border-radius:4px; font-family:var(--mono); font-size:.85em;}
 </style>
+    <link rel="manifest" href="/CHE101-Calculator/manifest.json">
 </head>
 <body>
 
@@ -1773,6 +1774,11 @@ document.getElementById("reference").innerHTML = `
 
 /* run one example solve on load so the page isn't empty */
 window.addEventListener("DOMContentLoaded", ()=>{ try{ solveCombustion(); }catch(e){} });
-</script>
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('/CHE101-Calculator/sw.js')
+            .then(() => console.log('Service Worker Registered'))
+            .catch((err) => console.log('Service Worker Failed', err));
+        }
+    </script>
 </body>
 </html>
