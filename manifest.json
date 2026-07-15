@@ -1,0 +1,24 @@
+{
+  "name": "CHE 101 Calculator",
+  "short_name": "CHE101 Calc",
+  "description": "Mass, material & energy balance solver reference data from Felder, Rousseau & Bullard.",
+  "start_url": "/CHE101-Calculator/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0056b3",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
